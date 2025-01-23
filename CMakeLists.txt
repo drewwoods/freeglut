@@ -83,6 +83,8 @@ IF(NOT WIN32)
     OPTION(FREEGLUT_WAYLAND "Use Wayland (no X11)" OFF)
 ENDIF()
 
+OPTION(FREEGLUT_COCOA "Build support for Cocoa" OFF)
+
 # IF(APPLE)
 #     OPTION(FREEGLUT_COCOA "Build support for Cocoa" ON)
 # ENDIF()
@@ -93,9 +95,9 @@ ELSE()
     SET(OGC OFF)
 ENDIF()
 
-#
+#######################
 # SOURCE SELECTION
-#
+#######################
 
 SET(FREEGLUT_HEADERS
     include/GL/freeglut.h
@@ -237,21 +239,45 @@ ELSEIF(OGC)
     ADD_DEFINITIONS(-DEGL_VERSION_1_0)
 
 ELSEIF(FREEGLUT_COCOA)
+    # LIST(APPEND FREEGLUT_SRCS
+    # src/cocoa/fg_cursor_cocoa.c
+    # src/cocoa/fg_display_cocoa.c
+    # src/cocoa/fg_ext_cocoa.c
+    # src/cocoa/fg_gamemode_cocoa.c
+    # src/cocoa/fg_init_cocoa.c
+    # src/cocoa/fg_internal_cocoa.h
+    # src/cocoa/fg_input_devices_cocoa.c
+    # src/cocoa/fg_joystick_cocoa.c
+    # src/cocoa/fg_main_cocoa.c
+    # src/cocoa/fg_spaceball_cocoa.c
+    # src/cocoa/fg_state_cocoa.c
+    # src/cocoa/fg_structure_cocoa.c
+    # src/cocoa/fg_window_cocoa.c
+    # src/cocoa/fg_menu_cocoa.c
+    # )
     LIST(APPEND FREEGLUT_SRCS
-        src/cocoa/fg_cursor_cocoa.c
-        src/cocoa/fg_display_cocoa.c
-        src/cocoa/fg_ext_cocoa.c
-        src/cocoa/fg_gamemode_cocoa.c
-        src/cocoa/fg_init_cocoa.c
-        src/cocoa/fg_internal_cocoa.h
-        src/cocoa/fg_input_devices_cocoa.c
-        src/cocoa/fg_joystick_cocoa.c
-        src/cocoa/fg_main_cocoa.c
-        src/cocoa/fg_spaceball_cocoa.c
-        src/cocoa/fg_state_cocoa.c
-        src/cocoa/fg_structure_cocoa.c
-        src/cocoa/fg_window_cocoa.c
-        src/cocoa/fg_menu_cocoa.c
+        src/cocoa/fg_cursor_x11.c
+        src/cocoa/fg_ext_x11.c
+        src/cocoa/fg_gamemode_x11.c
+        src/cocoa/fg_glutfont_definitions_x11.c
+        src/cocoa/fg_init_x11.c
+        src/cocoa/fg_internal_x11.h
+        src/cocoa/fg_input_devices_x11.c
+        src/cocoa/fg_joystick_x11.c
+        src/cocoa/fg_main_x11.c
+        src/cocoa/fg_menu_x11.c
+        src/cocoa/fg_spaceball_x11.c
+        src/cocoa/fg_state_x11.c
+        src/cocoa/fg_structure_x11.c
+        src/cocoa/fg_window_x11.c
+        src/cocoa/fg_xinput_x11.c
+        src/cocoa/fg_cmap_x11.c
+        src/cocoa/fg_internal_x11_glx.h
+        src/cocoa/fg_display_x11_glx.c
+        src/cocoa/fg_state_x11_glx.c
+        src/cocoa/fg_state_x11_glx.h
+        src/cocoa/fg_window_x11_glx.c
+        src/cocoa/fg_window_x11_glx.h
     )
 
 ELSE()
@@ -291,7 +317,7 @@ ELSE()
             src/x11/fg_structure_x11.c
             src/x11/fg_window_x11.c
             src/x11/fg_xinput_x11.c
-	    src/x11/fg_cmap_x11.c
+            src/x11/fg_cmap_x11.c
         )
         IF(NOT(FREEGLUT_GLES))
             LIST(APPEND FREEGLUT_SRCS
@@ -479,12 +505,58 @@ IF(WIN32)
 ENDIF()
 
 IF(FREEGLUT_COCOA)
-    FIND_PACKAGE(OpenGL REQUIRED)
-    LIST(APPEND LIBS ${OPENGL_gl_LIBRARY})
-    INCLUDE_DIRECTORIES(${OPENGL_INCLUDE_DIR})
+    # TEMP CODE Begin
+    FIND_PACKAGE(X11 REQUIRED)
+    INCLUDE_DIRECTORIES(${X11_X11_INCLUDE_PATH})
+    LIST(APPEND LIBS ${X11_X11_LIB})
 
-    # Add Cocoa framework
-    LIST(APPEND LIBS "-framework Cocoa" "-framework OpenGL" "-framework IOKit" "-framework CoreVideo")
+    IF(X11_Xrandr_FOUND)
+        SET(HAVE_X11_EXTENSIONS_XRANDR_H TRUE)
+        LIST(APPEND LIBS ${X11_Xrandr_LIB})
+    ENDIF()
+
+    IF(X11_xf86vmode_FOUND)
+        SET(HAVE_X11_EXTENSIONS_XF86VMODE_H TRUE)
+        LIST(APPEND LIBS ${X11_Xxf86vm_LIB})
+    ENDIF()
+
+    IF(X11_Xinput_FOUND)
+        # Needed for multi-touch:
+        CHECK_INCLUDE_FILES("${X11_Xinput_INCLUDE_PATH}/X11/extensions/XInput2.h" HAVE_X11_EXTENSIONS_XINPUT2_H)
+        LIST(APPEND LIBS ${X11_Xinput_LIB})
+    ELSE()
+        MESSAGE(WARNING "Missing X11's XInput2.h (X11/extensions/XInput2.h)")
+    ENDIF()
+
+    FIND_PACKAGE(X11 REQUIRED)
+    INCLUDE_DIRECTORIES(${X11_X11_INCLUDE_PATH})
+    LIST(APPEND LIBS ${X11_X11_LIB})
+
+    IF(X11_Xrandr_FOUND)
+        SET(HAVE_X11_EXTENSIONS_XRANDR_H TRUE)
+        LIST(APPEND LIBS ${X11_Xrandr_LIB})
+    ENDIF()
+
+    IF(X11_xf86vmode_FOUND)
+        SET(HAVE_X11_EXTENSIONS_XF86VMODE_H TRUE)
+        LIST(APPEND LIBS ${X11_Xxf86vm_LIB})
+    ENDIF()
+
+    IF(X11_Xinput_FOUND)
+        # Needed for multi-touch:
+        CHECK_INCLUDE_FILES("${X11_Xinput_INCLUDE_PATH}/X11/extensions/XInput2.h" HAVE_X11_EXTENSIONS_XINPUT2_H)
+        LIST(APPEND LIBS ${X11_Xinput_LIB})
+    ELSE()
+        MESSAGE(WARNING "Missing X11's XInput2.h (X11/extensions/XInput2.h)")
+    ENDIF()
+    # TEMP CODE End
+
+    # FIND_PACKAGE(OpenGL REQUIRED)
+    # LIST(APPEND LIBS ${OPENGL_gl_LIBRARY})
+    # INCLUDE_DIRECTORIES(${OPENGL_INCLUDE_DIR})
+
+    # # Add Cocoa framework
+    # LIST(APPEND LIBS "-framework Cocoa" "-framework OpenGL" "-framework IOKit" "-framework CoreVideo")
 ENDIF()
 
 IF(CMAKE_COMPILER_IS_GNUCC)
