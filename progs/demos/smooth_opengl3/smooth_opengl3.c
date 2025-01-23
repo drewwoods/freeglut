@@ -234,6 +234,29 @@ void initBuffer(void)
    checkError ("initBuffer");
 }
 
+#ifdef __APPLE__
+const ourGLchar *vertexShaderSource[] = {
+   "#version 120\n",
+   "uniform mat4 fg_ProjectionMatrix;\n",
+   "attribute vec4 fg_Color;\n",
+   "attribute vec4 fg_Vertex;\n",
+   "varying vec4 fg_SmoothColor;\n",
+   "void main()\n",
+   "{\n",
+   "   fg_SmoothColor = fg_Color;\n",
+   "   gl_Position = fg_ProjectionMatrix * fg_Vertex;\n",
+   "}\n"
+};
+
+const ourGLchar *fragmentShaderSource[] = {
+   "#version 120\n",
+   "varying vec4 fg_SmoothColor;\n",
+   "void main(void)\n",
+   "{\n",
+   "   gl_FragColor = fg_SmoothColor;\n",
+   "}\n"
+};
+#else
 const ourGLchar *vertexShaderSource[] = {
    "#version 140\n",
    "uniform mat4 fg_ProjectionMatrix;\n",
@@ -256,6 +279,7 @@ const ourGLchar *fragmentShaderSource[] = {
    "   fg_FragColor = fg_SmoothColor;\n",
    "}\n"
 };
+#endif
 
 void compileAndCheck(GLuint shader)
 {
