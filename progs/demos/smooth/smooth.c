@@ -35,7 +35,6 @@
  *
  */
 
-#include "GL/freeglut_std.h"
 #include <GL/freeglut.h>
 #include <OpenGL/OpenGL.h>
 #include <stdlib.h>
