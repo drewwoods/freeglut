@@ -811,6 +811,7 @@ ADD_DEMO(multi-touch     progs/demos/multi-touch/multi-touch.c)
 ADD_DEMO(shapes          progs/demos/shapes/shapes.c
                          progs/demos/shapes/glmatrix.h
                          progs/demos/shapes/glmatrix.c)
+ADD_DEMO(smooth          progs/demos/smooth/smooth.c)
 ADD_DEMO(smooth_opengl3  progs/demos/smooth_opengl3/smooth_opengl3.c)
 ADD_DEMO(spaceball       progs/demos/spaceball/spaceball.c
                          progs/demos/spaceball/vmath.c
