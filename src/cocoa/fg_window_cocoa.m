@@ -1,6 +1,4 @@
 /*
- * fg_window_cocoa.m
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -19,12 +17,8 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#import <Foundation/Foundation.h>
-#import <AppKit/AppKit.h>
-
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
-#include <unistd.h> /* usleep, gethostname, getpid */
 #include "../fg_internal.h"
 
 /*
@@ -42,68 +36,7 @@ void fgPlatformOpenWindow( SFG_Window *window,
     GLboolean                          gameMode,
     GLboolean                          isSubWindow )
 {
-    @autoreleasepool {
-        NSRect     contentRect = NSMakeRect( x, y, w, h );
-        NSUInteger styleMask   = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
-
-        if ( !window->IsMenu ) {
-            styleMask |= NSWindowStyleMaskResizable;
-        }
-
-        /* Create the window */
-        NSWindow *nswin = [[NSWindow alloc] initWithContentRect:contentRect
-                                                      styleMask:styleMask
-                                                        backing:NSBackingStoreBuffered
-                                                          defer:NO];
-
-        /* Configure window properties */
-        [nswin setTitle:[NSString stringWithUTF8String:title]];
-        [nswin setAcceptsMouseMovedEvents:YES];
-        [nswin setRestorable:NO];
-
-        /* Create OpenGL pixel format */
-        NSOpenGLPixelFormatAttribute attributes[] = { NSOpenGLPFADoubleBuffer,
-            NSOpenGLPFAColorSize,
-            24,
-            NSOpenGLPFAAlphaSize,
-            8,
-            NSOpenGLPFADepthSize,
-            24,
-            NSOpenGLPFAStencilSize,
-            8,
-            NSOpenGLPFAAccelerated,
-            0 };
-
-        NSOpenGLPixelFormat *pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attributes];
-        if ( !pixelFormat ) {
-            fgError( "Failed to create OpenGL pixel format" );
-        }
-
-        /* Create OpenGL context */
-        NSOpenGLContext *context = [[NSOpenGLContext alloc] initWithFormat:pixelFormat shareContext:nil];
-        if ( !context ) {
-            fgError( "Failed to create OpenGL context" );
-        }
-
-        /* Create OpenGL view */
-        NSRect        viewRect = NSMakeRect( 0, 0, w, h );
-        NSOpenGLView *glView   = [[NSOpenGLView alloc] initWithFrame:viewRect pixelFormat:pixelFormat];
-        [glView setOpenGLContext:context];
-        [glView setWantsBestResolutionOpenGLSurface:YES];
-
-        /* Set up window */
-        [nswin setContentView:glView];
-        [nswin makeFirstResponder:glView];
-        [glView release];
-        [pixelFormat release];
-
-        /* Store window and context in GLUT window structure */
-        window->Window.Handle  = (void *)nswin;
-        window->Window.Context = (void *)context;
-
-        /* Show window */
-        [nswin makeKeyAndOrderFront:nil];
-    }
+    TODO_IMPL;
 }
 
 /*
