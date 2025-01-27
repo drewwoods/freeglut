@@ -1,13 +1,4 @@
 /*
- * fg_state_x11_glx.c
- *
- * X11-specific freeglut state query methods.
- *
- * Copyright (c) 1999-2000 Pawel W. Olszta. All Rights Reserved.
- * Written by Pawel W. Olszta, <olszta@sourceforge.net>
- * Copied for Platform code by Evan Felix <karcaw at gmail.com>
- * Creation date: Thur Feb 2 2012
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -26,10 +17,22 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __FG_STATE_X11_GLX_H__
-#define __FG_STATE_X11_GLX_H__
+#include <GL/freeglut.h>
+#include "../fg_internal.h"
 
-int fgPlatformGetConfig(int attribute);
-int fghPlatformGlutGetGLX(GLenum eWhat);
+void fgPlatformSetColor( int idx, float r, float g, float b )
+{
+    TODO_IMPL;
+}
 
-#endif
+float fgPlatformGetColor( int idx, int comp )
+{
+    TODO_IMPL;
+
+    return 0.0f;
+}
+
+void fgPlatformCopyColormap( int win )
+{
+    TODO_IMPL;
+}

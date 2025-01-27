@@ -1,13 +1,4 @@
 /*
- * fg_menu_x11.c
- *
- * Pull-down menu creation and handling.
- *
- * Copyright (c) 1999-2000 Pawel W. Olszta. All Rights Reserved.
- * Written by Pawel W. Olszta, <olszta@sourceforge.net>
- * Copied for Platform code by Evan Felix <karcaw at gmail.com>
- * Creation date: Wed Feb 1, 2012
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -29,21 +20,17 @@
 #include <GL/freeglut.h>
 #include "../fg_internal.h"
 
-/*
- *  * Private function to get the virtual maximum screen extent
- *   */
-GLvoid fgPlatformGetGameModeVMaxExtent( SFG_Window* window, int* x, int* y )
+void fgPlatformSetCursor( SFG_Window *window, int cursorID )
 {
-    int wx, wy;
-    Window w;
-
-    XTranslateCoordinates(
-        fgDisplay.pDisplay.Display,
-        window->Window.Handle,
-        fgDisplay.pDisplay.RootWindow,
-        0, 0, &wx, &wy, &w);
-
-    *x = fgState.GameModeSize.X + wx;
-    *y = fgState.GameModeSize.Y + wy;
+    TODO_IMPL;
 }
 
+void fgPlatformWarpPointer( int x, int y )
+{
+    TODO_IMPL;
+}
+
+void fghPlatformGetCursorPos( const SFG_Window *window, GLboolean client, SFG_XYUse *mouse_pos )
+{
+    TODO_IMPL;
+}

@@ -1,13 +1,4 @@
 /*
- * fg_display_x11.c
- *
- * Display message posting, context buffer swapping.
- *
- * Copyright (c) 1999-2000 Pawel W. Olszta. All Rights Reserved.
- * Written by Pawel W. Olszta, <olszta@sourceforge.net>
- * Copied for Platform code by Evan Felix <karcaw at gmail.com>
- * Creation date: Thur Feb 2 2012
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -29,8 +20,22 @@
 #include <GL/freeglut.h>
 #include "../fg_internal.h"
 
-void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr, SFG_Window* CurrentWindow )
+void fgPlatformJoystickRawRead( SFG_Joystick *joy, int *buttons, float *axes )
 {
-    glXSwapBuffers( pDisplayPtr->Display, CurrentWindow->Window.Handle );
+    TODO_IMPL;
 }
 
+void fgPlatformJoystickOpen( SFG_Joystick *joy )
+{
+    TODO_IMPL;
+}
+
+void fgPlatformJoystickInit( SFG_Joystick *fgJoystick[], int ident )
+{
+    TODO_IMPL;
+}
+
+void fgPlatformJoystickClose( int ident )
+{
+    TODO_IMPL;
+}

@@ -1,13 +1,4 @@
 /*
- * fg_structure.c
- *
- * Windows and menus need tree structure
- *
- * Copyright (c) 1999-2000 Pawel W. Olszta. All Rights Reserved.
- * Written by Pawel W. Olszta, <olszta@sourceforge.net>
- * Copied for Platform code by Evan Felix <karcaw at gmail.com>
- * Creation date: Thur Feb 2 2012
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -27,25 +18,9 @@
  */
 
 #include <GL/freeglut.h>
-#include "fg_internal.h"
-#ifdef EGL_VERSION_1_0
-#include "egl/fg_structure_egl.h"
-#endif
+#include "../fg_internal.h"
 
-extern SFG_Structure fgStructure;
-
-void fgPlatformCreateWindow ( SFG_Window *window )
+void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr, SFG_Window *CurrentWindow )
 {
-#ifdef EGL_VERSION_1_0
-    fghPlatformCreateWindowEGL(window);
-#else
-#ifdef USE_FBCONFIG
-    window->Window.pContext.FBConfig = NULL;
-#else
-    window->Window.pContext.visinf = NULL;
-#endif
-#endif
-
-    window->State.pWState.OldHeight = window->State.pWState.OldWidth = -1;
+    TODO_IMPL;
 }
-
