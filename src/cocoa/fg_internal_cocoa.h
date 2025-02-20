@@ -46,15 +46,6 @@
 /* Platform-specific display structure */
 struct CocoaPlatformDisplay {
     uint32_t CocoaDisplay; /* The display ID */
-    int      Screen;       /* Main screen number */
-    void*    DeleteWindow; /* Window deletion atom */
-    // Atom              State;           /* State atom */
-    // Atom              StateFullScreen; /* Full screen atom */
-    // int               NetWMSupported;  /* Flag for window manager */
-    // Atom              NetWMPid;        /* Process ID atom */
-    // Atom              ClientMachine;   /* Client machine atom */
-    // Atom              NetWMName;       /* Window name atom */
-    // Atom              NetWMIconName;   /* Icon name atom */
 };
 
 /* Platform-specific window context */
@@ -69,7 +60,6 @@ struct CocoaWindowState {
     int OldHeight; /* Window height before resize */
 };
 
-#define _JS_MAX_AXES 16
 struct CocoaPlatformJoystick {};
 
 /*
