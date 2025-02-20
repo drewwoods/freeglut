@@ -240,7 +240,6 @@ ELSEIF(OGC)
     ADD_DEFINITIONS(-DEGL_VERSION_1_0)
 
 ELSEIF(FREEGLUT_COCOA)
-
     LIST(APPEND FREEGLUT_SRCS
         src/cocoa/fg_cmap_cocoa.m
         src/cocoa/fg_cursor_cocoa.m
@@ -745,9 +744,9 @@ ELSE()
 ENDIF()
 ADD_DEMO(resizer         progs/demos/resizer/resizer.c)
 ADD_DEMO(multi-touch     progs/demos/multi-touch/multi-touch.c)
-ADD_DEMO(shapes progs/demos/shapes/shapes.c
-    progs/demos/shapes/glmatrix.h
-    progs/demos/shapes/glmatrix.c)
+ADD_DEMO(shapes          progs/demos/shapes/shapes.c
+                         progs/demos/shapes/glmatrix.h
+                         progs/demos/shapes/glmatrix.c)
 ADD_DEMO(smooth_opengl3  progs/demos/smooth_opengl3/smooth_opengl3.c)
 ADD_DEMO(spaceball       progs/demos/spaceball/spaceball.c
                          progs/demos/spaceball/vmath.c
