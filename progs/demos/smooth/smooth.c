@@ -39,6 +39,7 @@
 #include <OpenGL/OpenGL.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 
 /* report GL errors, if any, to stderr */
 void checkError(const char *functionName)
@@ -120,7 +121,6 @@ void reshape (int w, int h)
    }
    glMatrixMode (GL_MODELVIEW);
    glLoadIdentity ();
-   glutPostRedisplay ();
    checkError ("reshape");
 }
 
@@ -136,16 +136,15 @@ void keyboard(unsigned char key, int x, int y)
 int main(int argc, char** argv)
 {
    glutInit (&argc, argv);
-   glutInitDisplayMode (GLUT_SINGLE | GLUT_RGB);
-   glutInitWindowSize (500, 500); 
-   glutInitWindowPosition (100, 100);
    glutCreateWindow (argv[0]);
    dumpInfo ();
    init ();
-   glutDisplayFunc (display); 
-   glutReshapeFunc (reshape);
-   glutKeyboardFunc (keyboard);
 
-   glutMainLoop ();
+   reshape(500, 500);
+   display();
+
+   while (1) {
+      sleep(1);
+   }
    return 0;
 }

@@ -240,6 +240,7 @@ ELSEIF(OGC)
     ADD_DEFINITIONS(-DEGL_VERSION_1_0)
 
 ELSEIF(FREEGLUT_COCOA)
+
     LIST(APPEND FREEGLUT_SRCS
         src/cocoa/fg_cmap_cocoa.m
         src/cocoa/fg_cursor_cocoa.m

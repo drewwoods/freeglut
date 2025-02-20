@@ -1,13 +1,4 @@
 /*
- * fg_ext.c
- *
- * Functions related to OpenGL extensions.
- *
- * Copyright (c) 1999-2000 Pawel W. Olszta. All Rights Reserved.
- * Written by Pawel W. Olszta, <olszta@sourceforge.net>
- * Copied for Platform code by Evan Felix <karcaw at gmail.com>
- * Creation date: Thur Feb 2 2012
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -26,36 +17,56 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#define GLX_GLXEXT_PROTOTYPES
 #include <GL/freeglut.h>
 #include "../fg_internal.h"
 
-GLUTproc fgPlatformGetGLUTProcAddress( const char* procName )
+fg_time_t fgPlatformSystemTime( void )
 {
-    /* optimization: quick initial check */
-    if( strncmp( procName, "glut", 4 ) != 0 )
-        return NULL;
-
-#define CHECK_NAME(x) if( strcmp( procName, #x ) == 0) return (GLUTproc)x;
-    CHECK_NAME(glutJoystickFunc);
-    CHECK_NAME(glutForceJoystickFunc);
-    CHECK_NAME(glutGameModeString);
-    CHECK_NAME(glutEnterGameMode);
-    CHECK_NAME(glutLeaveGameMode);
-    CHECK_NAME(glutGameModeGet);
-#undef CHECK_NAME
-
-    return NULL;
+    TODO_IMPL;
+    return 0;
 }
 
+/*
+ * Does the magic required to relinquish the CPU until something interesting
+ * happens.
+ */
 
-#ifndef EGL_VERSION_1_0
-SFG_Proc fgPlatformGetProcAddress( const char *procName )
+void fgPlatformSleepForEvents( fg_time_t msec )
 {
-#if defined( GLX_ARB_get_proc_address )
-    return (SFG_Proc)glXGetProcAddressARB( ( const GLubyte * )procName );
-#else
-    return NULL;
-#endif
+    TODO_IMPL;
 }
-#endif
+
+/*
+ * Returns GLUT modifier mask for the state field of an X11 event.
+ */
+int fgPlatformGetModifiers( int state )
+{
+    TODO_IMPL;
+    return 0;
+}
+
+void fgPlatformProcessSingleEvent( void )
+{
+    TODO_IMPL;
+}
+
+void fgPlatformMainLoopPreliminaryWork( void )
+{
+    TODO_IMPL;
+}
+
+/* deal with work list items */
+void fgPlatformInitWork( SFG_Window *window )
+{
+    TODO_IMPL;
+}
+
+void fgPlatformPosResZordWork( SFG_Window *window, unsigned int workMask )
+{
+    TODO_IMPL;
+}
+
+void fgPlatformVisibilityWork( SFG_Window *window )
+{
+    TODO_IMPL;
+}

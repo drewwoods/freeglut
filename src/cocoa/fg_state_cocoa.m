@@ -1,13 +1,4 @@
 /*
- * fg_window_x11_glx.c
- *
- * Window management methods for X11 with GLX
- *
- * Copyright (c) 1999-2000 Pawel W. Olszta. All Rights Reserved.
- * Written by Pawel W. Olszta, <olszta@sourceforge.net>
- * Copied for Platform code by Evan Felix <karcaw at gmail.com>
- * Creation date: Thur Feb 2 2012
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -26,16 +17,23 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef __FG_WINDOW_X11_GLX_H__
-#define __FG_WINDOW_X11_GLX_H__
+#include <GL/freeglut.h>
+#include "../fg_internal.h"
 
-#include "fg_internal_x11_glx.h"
+int fgPlatformGlutDeviceGet( GLenum eWhat )
+{
+    TODO_IMPL;
+    return 0;
+}
 
-#ifdef USE_FBCONFIG
-int fghChooseConfig(GLXFBConfig *fbconfig);
-#else
-int fghChooseConfig(XVisualInfo **vinf_ret);
-#endif
-GLXContext fghCreateNewContext(SFG_Window* window);
+int fgPlatformGlutGet( GLenum eWhat )
+{
+    TODO_IMPL;
+    return 0;
+}
 
-#endif
+int* fgPlatformGlutGetModeValues( GLenum eWhat, int* size )
+{
+    TODO_IMPL;
+    return NULL;
+}
