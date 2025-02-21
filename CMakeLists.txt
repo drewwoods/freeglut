@@ -52,6 +52,10 @@ OPTION(FREEGLUT_PRINT_ERRORS "Lib prints errors to stderr" ON)
 OPTION(FREEGLUT_PRINT_WARNINGS "Lib prints warnings to stderr" ON)
 #MARK_AS_ADVANCED(FREEGLUT_PRINT_WARNINGS)
 
+#######################
+# PLATFORM DETECTION
+#######################
+
 # option to also copy .pdb files to install directory when executing
 # INSTALL target
 IF(MSVC)
@@ -79,11 +83,22 @@ IF(NOT WIN32)
     OPTION(FREEGLUT_WAYLAND "Use Wayland (no X11)" OFF)
 ENDIF()
 
+OPTION(FREEGLUT_COCOA "Build support for Cocoa" OFF)
+
+# Eventually default to ON when Cocoa is fully supported
+# IF(APPLE)
+#     OPTION(FREEGLUT_COCOA "Build support for Cocoa" ON)
+# ENDIF()
+
 IF(CMAKE_SYSTEM_NAME MATCHES "NintendoWii|NintendoGameCube")
     SET(OGC ON)
 ELSE()
     SET(OGC OFF)
 ENDIF()
+
+#######################
+# SOURCE SELECTION
+#######################
 
 SET(FREEGLUT_HEADERS
     include/GL/freeglut.h
@@ -224,6 +239,25 @@ ELSEIF(OGC)
     # Only used in fg_window.c, to declare support for double buffering
     ADD_DEFINITIONS(-DEGL_VERSION_1_0)
 
+ELSEIF(FREEGLUT_COCOA)
+    LIST(APPEND FREEGLUT_SRCS
+        src/cocoa/fg_cmap_cocoa.m
+        src/cocoa/fg_cursor_cocoa.m
+        src/cocoa/fg_display_cocoa.m
+        src/cocoa/fg_glut_definitions_cocoa.m
+        src/cocoa/fg_ext_cocoa.m
+        src/cocoa/fg_gamemode_cocoa.m
+        src/cocoa/fg_init_cocoa.m
+        src/cocoa/fg_internal_cocoa.h
+        src/cocoa/fg_input_devices_cocoa.m
+        src/cocoa/fg_joystick_cocoa.m
+        src/cocoa/fg_main_cocoa.m
+        src/cocoa/fg_spaceball_cocoa.m
+        src/cocoa/fg_state_cocoa.m
+        src/cocoa/fg_structure_cocoa.m
+        src/cocoa/fg_window_cocoa.m
+    )
+
 ELSE()
     # UNIX (Wayland)
     IF(FREEGLUT_WAYLAND)
@@ -261,7 +295,7 @@ ELSE()
             src/x11/fg_structure_x11.c
             src/x11/fg_window_x11.c
             src/x11/fg_xinput_x11.c
-	    src/x11/fg_cmap_x11.c
+            src/x11/fg_cmap_x11.c
         )
         IF(NOT(FREEGLUT_GLES))
             LIST(APPEND FREEGLUT_SRCS
@@ -293,8 +327,13 @@ IF(FREEGLUT_GLES OR FREEGLUT_WAYLAND)
     )
 ENDIF()
 
+#######################
+# DEPENDENCIES
+#######################
+
 INCLUDE(CheckIncludeFiles)
-IF(UNIX AND NOT(ANDROID OR BLACKBERRY OR FREEGLUT_WAYLAND OR OGC))
+
+IF(UNIX AND NOT(ANDROID OR BLACKBERRY OR FREEGLUT_WAYLAND OR OGC OR FREEGLUT_COCOA))
     FIND_PACKAGE(X11 REQUIRED)
     INCLUDE_DIRECTORIES(${X11_X11_INCLUDE_PATH})
     LIST(APPEND LIBS ${X11_X11_LIB})
@@ -350,9 +389,9 @@ IF(FREEGLUT_GLES)
       LIST(APPEND LIBS ${EGL_LIBRARY} ${GLES1_LIBRARY} ${GLES2_LIBRARY})
     endif()
 ELSE()
-    # On OS X, we need to link against the X11 OpenGL libraries, NOT the Cocoa OpenGL libraries.
-    # To do that, you need to manually find two of the libraries before calling FindOpenGL
-    if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
+    # On OS X, if we are linking against the X11 OpenGL libraries and NOT the Cocoa OpenGL
+    # libraries, we need to manually find two of the libraries before calling FindOpenGL
+    if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin" AND NOT FREEGLUT_COCOA)
       # get path where X11 libs are
       get_filename_component(X11_LIB_PATH ${X11_Xi_LIB} DIRECTORY)
 
@@ -443,6 +482,15 @@ IF(WIN32)
 
 ENDIF()
 
+IF(FREEGLUT_COCOA)
+    FIND_PACKAGE(OpenGL REQUIRED)
+    LIST(APPEND LIBS ${OPENGL_gl_LIBRARY})
+    INCLUDE_DIRECTORIES(${OPENGL_INCLUDE_DIR})
+
+    # Add Cocoa framework
+    LIST(APPEND LIBS "-framework Cocoa" "-framework OpenGL" "-framework IOKit" "-framework CoreVideo")
+ENDIF()
+
 IF(CMAKE_COMPILER_IS_GNUCC)
   SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
   IF(NOT(ANDROID OR BLACKBERRY OR FREEGLUT_WAYLAND))
@@ -516,6 +564,11 @@ IF(WIN32)
     ENDIF()
 ENDIF()
 
+# ######################
+# BUILD OPTIONS
+# ######################
+SET(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0")
+
 IF(FREEGLUT_BUILD_SHARED_LIBS)
     ADD_LIBRARY(freeglut SHARED ${FREEGLUT_SRCS})
 ENDIF()
@@ -573,6 +626,10 @@ ELSE()
         IF(FREEGLUT_REPLACE_GLUT)
             SET(LIBNAME glut)
         ENDIF()
+    ENDIF()
+
+    IF(FREEGLUT_COCOA)
+        ADD_DEFINITIONS(-DTARGET_HOST_MACOS_COCOA=1)
     ENDIF()
 
     IF(FREEGLUT_BUILD_SHARED_LIBS)
@@ -635,7 +692,9 @@ IF(FREEGLUT_BUILD_STATIC_LIBS)
 ENDIF()
 INSTALL(FILES ${FREEGLUT_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GL COMPONENT Devel)
 
-
+########################
+# DEMOS
+########################
 
 # Optionally build demos, on by default.
 option( FREEGLUT_BUILD_DEMOS "Build FreeGLUT demos." ON )
@@ -700,7 +759,9 @@ ADD_DEMO(keyboard        progs/demos/keyboard/keyboard.c)
 ADD_DEMO(indexed_color   progs/demos/indexed_color/idxcol.c)
 ADD_DEMO(3dview          progs/demos/3dview/3dview.c)
 
-
+#######################
+# INSTALLATION
+#######################
 
 # pkg-config support, to install at $(libdir)/pkgconfig
 # Define static build dependencies
