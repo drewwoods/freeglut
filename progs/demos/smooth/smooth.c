@@ -35,10 +35,14 @@
  *
  */
 
+#include "GL/freeglut_std.h"
 #include <GL/freeglut.h>
 #include <OpenGL/OpenGL.h>
-#include <stdlib.h>
+#include <limits.h>
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
 /* report GL errors, if any, to stderr */
 void checkError(const char *functionName)
@@ -99,29 +103,131 @@ void dumpInfo(void)
    printf ("GLSL: %s\n", glGetString (GL_SHADING_LANGUAGE_VERSION));
    checkError ("dumpInfo");
 }
+float angle = 0.0;
 
-void display(void)
-{
-   glClear (GL_COLOR_BUFFER_BIT);
-   glDrawArrays (GL_TRIANGLES, 0, numElements);
-   glFlush ();
-   checkError ("display");
+struct Timer {
+  uint64_t start;
+  uint64_t next_update;
+  uint64_t count;
+  uint64_t interval;
+  float sum;
+  double sum_of_squares;
+  char buf[256];
+  float min, max;
+};
+
+const char *tend(struct Timer *self);
+
+const char *tstart(struct Timer *self) {
+  const char *msg = NULL;
+  if (self->start) {
+    msg = tend(self);
+  }
+  if (self->interval == 0) {
+    self->interval = 10e9;
+  }
+  self->start = clock_gettime_nsec_np(CLOCK_REALTIME);
+  if (!self->next_update) {
+    self->next_update = self->start + self->interval;
+  }
+
+  return msg;
+}
+
+const char *tend(struct Timer *self) {
+  uint64_t now = clock_gettime_nsec_np(CLOCK_REALTIME);
+  float dur = (now - self->start) / 1e6;
+  self->min = (self->min == 0 || dur < self->min) ? dur : self->min;
+  self->max = (dur > self->max) ? dur : self->max;
+  self->sum_of_squares += dur * dur;
+  self->sum += dur;
+  self->count++;
+
+  const char *msg = NULL;
+
+  if (now > self->next_update) {
+    float avg = self->sum / self->count;
+    float var = self->sum_of_squares / self->count - avg * avg;
+    snprintf(self->buf, sizeof(self->buf),
+             "Avg: %5.2fms   Min/Max: %5.2f/%5.2fms   STD:%.2fms   CNT: %llu",
+             avg, self->min, self->max, sqrt(var), self->count);
+    msg = self->buf;
+    self->next_update += self->interval;
+    self->min = INT_MAX;
+    self->max = INT_MIN;
+    self->sum_of_squares = 0;
+    self->sum = 0;
+    self->count = 0;
+  }
+
+  self->start = 0;
+
+  return msg;
+}
+
+static const char *get_fps(float update_interval_ns) {
+  static struct Timer timer;
+  timer.interval = update_interval_ns;
+  const char *msg = tstart(&timer);
+  static char buf[256];
+
+  if (msg) {
+    snprintf(buf, sizeof(buf), "%15s -- %s", "Frame Time", msg);
+    return buf;
+  }
+  return NULL;
+}
+
+// #import <Cocoa/Cocoa.h>
+void displayCB(void) {
+  // Make the context current if it exists
+  //   if (fgStructure.CurrentWindow &&
+  //   fgStructure.CurrentWindow->Window.Context) {
+  //     [(NSOpenGLContext *)
+  //             fgStructure.CurrentWindow->Window.Context makeCurrentContext];
+  //   }
+
+  //   if ([NSOpenGLContext currentContext] == nil) {
+  //     printf("No current OpenGL context in displayCB!\n");
+  //   } else {
+  //   }
+  //   printf("displayCB\n");
+
+  const char *fps = get_fps(1e9);
+  if (fps) {
+    printf("%s\n", fps);
+  }
+
+  glClearColor(0.1, 0.2, 0.3, 1.0);
+  glClear(GL_COLOR_BUFFER_BIT);
+
+  glLoadIdentity();
+  glRotatef(angle, 0, 0, 1);
+  angle += 0.1;
+
+  glBegin(GL_TRIANGLES);
+  glColor3f(1.0, 0.0, 0.0);
+  glVertex2d(0.0, 0.5);
+  glColor3f(0.0, 1.0, 0.0);
+  glVertex2d(0.5, -0.5);
+  glColor3f(0.0, 0.0, 1.0);
+  glVertex2d(-0.5, -0.5);
+  glEnd();
+
+  glutSwapBuffers();
+  //   glutPostRedisplay();
 }
 
 void reshape (int w, int h)
 {
-   glViewport (0, 0, (GLsizei) w, (GLsizei) h);
-   glMatrixMode (GL_PROJECTION);
-   glLoadIdentity ();
-   if (w <= h) {
-      glOrtho (0.0f, 30.0f, 0.0f, 30.0f * (GLfloat) h/(GLfloat) w, -1, 1);
-   } else {
-      glOrtho (0.0f, 30.0f * (GLfloat) w/(GLfloat) h, 0.0f, 30.0f, -1, 1);
-   }
-   glMatrixMode (GL_MODELVIEW);
-   glLoadIdentity ();
-   glutPostRedisplay ();
-   checkError ("reshape");
+  printf("reshape\n");
+  glViewport(0, 0, (GLsizei)w, (GLsizei)h);
+  glMatrixMode(GL_PROJECTION);
+  glLoadIdentity();
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+  glutPostRedisplay();
+  checkError("reshape");
 }
 
 void keyboard(unsigned char key, int x, int y)
@@ -133,19 +239,43 @@ void keyboard(unsigned char key, int x, int y)
    }
 }
 
+#if 1
 int main(int argc, char** argv)
 {
    glutInit (&argc, argv);
-   glutInitDisplayMode (GLUT_SINGLE | GLUT_RGB);
+   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
    glutInitWindowSize (500, 500); 
    glutInitWindowPosition (100, 100);
    glutCreateWindow (argv[0]);
    dumpInfo ();
-   init ();
-   glutDisplayFunc (display); 
+   // init ();
+   glutDisplayFunc(displayCB);
    glutReshapeFunc (reshape);
-   glutKeyboardFunc (keyboard);
+   glutIdleFunc(displayCB);
+   // glutKeyboardFunc (keyboard);
+   glutPostRedisplay(); // Trigger an initial redraw
 
-   glutMainLoop ();
+   // while(1);
+   glutMainLoop();
    return 0;
 }
+
+#else
+
+int main(int argc, char **argv) {
+  glutInit(&argc, argv);
+  glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB);
+  glutInitWindowSize(500, 500);
+  glutInitWindowPosition(100, 100);
+  int win = glutCreateWindow(argv[0]);
+
+  printf("Vendor: %s\n", glGetString(GL_VENDOR));
+  printf("Renderer: %s\n", glGetString(GL_RENDERER));
+  printf("Version: %s\n", glGetString(GL_VERSION));
+  printf("GLSL: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
+
+  glutMainLoop();
+
+  return 0;
+}
+#endif

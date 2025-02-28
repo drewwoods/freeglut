@@ -71,11 +71,17 @@ typedef struct CocoaPlatformJoystick SFG_PlatformJoystick;
 #include "../fg_internal.h"
 #include "../fg_init.h" // only in init_cocoa
 
-    ///////////////////////////////////////////
-    // CMAP
-    ///////////////////////////////////////////
+///////////////////////////////////////////
+// PROTOTYPES (delete me)
+///////////////////////////////////////////
 
-    void fgPlatformSetColor( int idx, float r, float g, float b )
+fg_time_t fgPlatformSystemTime( void );
+
+///////////////////////////////////////////
+// CMAP
+///////////////////////////////////////////
+
+void fgPlatformSetColor( int idx, float r, float g, float b )
 {
     TODO_IMPL;
 }
@@ -124,20 +130,40 @@ void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr, SFG_Window *Cu
 // EXT
 ///////////////////////////////////////////
 
-GLUTproc fgPlatformGetGLUTProcAddress( const char* procName )
+#include <dlfcn.h>
+
+GLUTproc fgPlatformGetGLUTProcAddress( const char *procName )
 {
-    TODO_IMPL;
+    /* optimization: quick initial check */
+    if ( strncmp( procName, "glut", 4 ) != 0 )
+        return NULL;
+
+#define CHECK_NAME( x )                \
+    if ( strcmp( procName, #x ) == 0 ) \
+        return (GLUTproc)x;
+    CHECK_NAME( glutJoystickFunc );
+    CHECK_NAME( glutForceJoystickFunc );
+    CHECK_NAME( glutGameModeString );
+    CHECK_NAME( glutEnterGameMode );
+    CHECK_NAME( glutLeaveGameMode );
+    CHECK_NAME( glutGameModeGet );
+#undef CHECK_NAME
 
     return NULL;
 }
 
-SFG_Proc fgPlatformGetProcAddress( const char* procName )
+SFG_Proc fgPlatformGetProcAddress( const char *procName )
 {
-    TODO_IMPL;
-
-    return NULL;
+    static void *glHandle = NULL;
+    if ( glHandle == NULL ) {
+        glHandle = dlopen( "/System/Library/Frameworks/OpenGL.framework/OpenGL", RTLD_LAZY | RTLD_GLOBAL );
+        if ( glHandle == NULL ) {
+            fgError( "Failed to dlopen OpenGL framework" );
+        }
+    }
+    void *addr = dlsym( glHandle, procName );
+    return addr;
 }
-
 ///////////////////////////////////////////
 // GAMEMODE
 ///////////////////////////////////////////
@@ -274,6 +300,17 @@ void fgPlatformInitialize( const char *displayName )
     }
 
     // Continue with any other initialization required...
+    // Set the initial time
+    fgState.Time = fgPlatformSystemTime( );
+
+    // Mark freeglut as initialized
+    fgState.Initialised = GL_TRUE;
+
+    // Register the deinitialization function
+    atexit( fgDeinitialize );
+
+    // Initialize input devices (joysticks, etc.)
+    // fgInitialiseInputDevices( );
 }
 
 // Display link callback function, which will be called at roughly 60fps
@@ -304,6 +341,17 @@ void fgPlatformCloseDisplay( void )
     }
 
     // Continue with any additional cleanup (e.g. releasing Cocoa resources)
+}
+
+
+void fgPlatformDeinitialiseInputDevices( void )
+{
+    TODO_IMPL;
+}
+
+void fgPlatformDestroyContext( SFG_PlatformDisplay pDisplay, SFG_WindowContextType MContext )
+{
+    TODO_IMPL;
 }
 
 ///////////////////////////////////////////
@@ -348,8 +396,9 @@ void fgPlatformJoystickClose( int ident )
 
 fg_time_t fgPlatformSystemTime( void )
 {
-    TODO_IMPL;
-    return 0;
+    struct timeval now;
+    gettimeofday( &now, NULL );
+    return (fg_time_t)( now.tv_sec * 1000LL + now.tv_usec / 1000 ); // Return time in milliseconds
 }
 
 /*
@@ -432,9 +481,15 @@ void fgPlatformSpaceballSetWindow( SFG_Window *window )
 // STRUCTURE
 ///////////////////////////////////////////
 
-void fgPlatformCreateWindow(SFG_Window* window)
+void fgPlatformCreateWindow( SFG_Window *window )
 {
-    TODO_IMPL;
+    // For Cocoa, initialize the platform-specific OpenGL context and pixel format
+    window->Window.pContext.CocoaContext = NULL;
+    window->Window.pContext.PixelFormat  = NULL;
+
+    // Initialize the platform window state dimensions to -1 (unset)
+    window->State.pWState.OldWidth  = -1;
+    window->State.pWState.OldHeight = -1;
 }
 
 ///////////////////////////////////////////
@@ -463,6 +518,8 @@ int* fgPlatformGlutGetModeValues( GLenum eWhat, int* size )
 // WINDOW
 ///////////////////////////////////////////
 
+#import <Cocoa/Cocoa.h>
+
 /*
  * Opens a window. Requires a SFG_Window object created and attached
  * to the freeglut structure. OpenGL context is created here.
@@ -478,7 +535,68 @@ void fgPlatformOpenWindow( SFG_Window *window,
     GLboolean                          gameMode,
     GLboolean                          isSubWindow )
 {
-    TODO_IMPL;
+    @autoreleasepool {
+        // Determine the frame: if position or size are not specified, use defaults.
+        NSRect frame;
+        if ( sizeUse )
+            frame = NSMakeRect( x, y, w, h );
+        else
+            frame = NSMakeRect( 100, 100, 800, 600 );
+
+        // Choose style mask – for game mode, use a borderless window.
+        NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable;
+        if ( gameMode )
+            style = NSWindowStyleMaskBorderless;
+
+        // Create the NSWindow.
+        NSWindow *nsWindow = [[NSWindow alloc] initWithContentRect:frame
+                                                         styleMask:style
+                                                           backing:NSBackingStoreBuffered
+                                                             defer:NO];
+        // Set the window title.
+        NSString *nsTitle = [NSString stringWithUTF8String:title];
+        [nsWindow setTitle:nsTitle];
+
+        // Create an NSOpenGLPixelFormat with desired attributes.
+        NSOpenGLPixelFormatAttribute attrs[]     = { NSOpenGLPFAOpenGLProfile,
+                NSOpenGLProfileVersionLegacy,
+                NSOpenGLPFADoubleBuffer,
+                NSOpenGLPFAColorSize,
+                24,
+                NSOpenGLPFAAlphaSize,
+                8,
+                NSOpenGLPFADepthSize,
+                24,
+                NSOpenGLPFAAccelerated,
+                0 };
+        NSOpenGLPixelFormat         *pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
+
+        // Create an NSOpenGLView using the pixel format.
+        NSOpenGLView *glView = [[NSOpenGLView alloc] initWithFrame:[[nsWindow contentView] bounds]
+                                                       pixelFormat:pixelFormat];
+        [glView setWantsBestResolutionOpenGLSurface:YES];
+        // Allow the view to resize with the window.
+        [glView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+        // Set the content view of the window.
+        [nsWindow setContentView:glView];
+        [nsWindow makeKeyAndOrderFront:nil];
+
+        // Retrieve the OpenGL context from the view.
+        NSOpenGLContext *glContext = [glView openGLContext];
+
+        // Store the NSWindow and NSOpenGLContext in the freeglut SFG_Window structure.
+        // (We use CFBridgingRetain to convert to a void* and take ownership.)
+        window->Window.Handle  = (SFG_WindowHandleType)CFBridgingRetain( nsWindow );
+        window->Window.Context = (SFG_WindowContextType)CFBridgingRetain( glContext );
+
+        // Update the freeglut window state.
+        window->State.Xpos    = (int)frame.origin.x;
+        window->State.Ypos    = (int)frame.origin.y;
+        window->State.Width   = (int)frame.size.width;
+        window->State.Height  = (int)frame.size.height;
+        window->State.Visible = GL_TRUE;
+    }
 }
 
 /*
@@ -486,7 +604,17 @@ void fgPlatformOpenWindow( SFG_Window *window,
  */
 void fgPlatformReshapeWindow( SFG_Window *window, int width, int height )
 {
-    TODO_IMPL;
+    @autoreleasepool {
+        NSWindow *nsWindow = (__bridge NSWindow *)window->Window.Handle;
+        NSRect    frame    = [nsWindow frame];
+        frame.size.width   = width;
+        frame.size.height  = height;
+        [nsWindow setFrame:frame display:YES animate:NO];
+
+        // Update internal state.
+        window->State.Width  = width;
+        window->State.Height = height;
+    }
 }
 
 /*
@@ -571,5 +699,10 @@ void fgPlatformFullScreenToggle( SFG_Window *win )
 
 void fgPlatformSetWindow( SFG_Window *window )
 {
-    TODO_IMPL;
+    // Set the current window pointer in the freeglut structure.
+    fgStructure.CurrentWindow = window;
+
+    // Retrieve the NSOpenGLContext and make it current.
+    NSOpenGLContext *glContext = (__bridge NSOpenGLContext *)window->Window.Context;
+    [glContext makeCurrentContext];
 }
