@@ -37,3 +37,7 @@ cmake_install.cmake
 freeglut.pc
 freeglut.rc
 FreeGLUT/
+build/
+.vscode/
+.DS_Store
+.clang-format

@@ -245,21 +245,7 @@ ELSEIF(OGC)
 
 ELSEIF(FREEGLUT_COCOA)
     LIST(APPEND FREEGLUT_SRCS
-        src/cocoa/fg_cmap_cocoa.m
-        src/cocoa/fg_cursor_cocoa.m
-        src/cocoa/fg_display_cocoa.m
-        src/cocoa/fg_glut_definitions_cocoa.m
-        src/cocoa/fg_ext_cocoa.m
-        src/cocoa/fg_gamemode_cocoa.m
-        src/cocoa/fg_init_cocoa.m
-        src/cocoa/fg_internal_cocoa.h
-        src/cocoa/fg_input_devices_cocoa.m
-        src/cocoa/fg_joystick_cocoa.m
-        src/cocoa/fg_main_cocoa.m
-        src/cocoa/fg_spaceball_cocoa.m
-        src/cocoa/fg_state_cocoa.m
-        src/cocoa/fg_structure_cocoa.m
-        src/cocoa/fg_window_cocoa.m
+        src/cocoa/fg_combined_cocoa.m
     )
 
 ELSE()
