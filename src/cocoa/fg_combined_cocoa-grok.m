@@ -20,7 +20,7 @@
 #include <unistd.h>
 #include <CoreVideo/CVDisplayLink.h> // Include for CVDisplayLinkRef
 
-#define DEBUG_LOG
+// #define DEBUG_LOG
 
 #ifdef DEBUG_LOG
 #define TODO_IMPL fgWarning( "%s not implemented yet in Cocoa", __func__ )
@@ -260,21 +260,26 @@ void *glutBitmapHelvetica18  = &glutBitmapHelvetica18;
 typedef struct _serialport SERIALPORT;
 SERIALPORT                *fg_serial_open( const char *device )
 {
+    TODO_IMPL;
     return NULL;
 }
 void fg_serial_close( SERIALPORT *port )
 {
+    TODO_IMPL;
 }
 int fg_serial_getchar( SERIALPORT *port )
 {
+    TODO_IMPL;
     return EOF;
 }
 int fg_serial_putchar( SERIALPORT *port, unsigned char ch )
 {
+    TODO_IMPL;
     return 0;
 }
 void fg_serial_flush( SERIALPORT *port )
 {
+    TODO_IMPL;
 }
 
 ///////////////////////////////////////////
@@ -412,9 +417,8 @@ void fgPlatformJoystickClose( int ident )
 
 fg_time_t fgPlatformSystemTime( void )
 {
-    struct timeval now;
-    gettimeofday( &now, NULL );
-    return (fg_time_t)( now.tv_sec * 1000LL + now.tv_usec / 1000 ); // Return time in milliseconds
+    uint64_t now_ns = clock_gettime_nsec_np( CLOCK_REALTIME );
+    return (fg_time_t)( now_ns / 1000000LL ); // Return time in milliseconds
 }
 
 /*
@@ -426,7 +430,16 @@ void fgPlatformSleepForEvents( fg_time_t msec )
 {
     // Implement sleep functionality according to msec
     PART_IMPL;
-    usleep( msec * 1000 ); // Sleep for the specified milliseconds
+    @autoreleasepool {
+        NSTimeInterval timeout_sec = ( msec == INT_MAX ) ? 1.0 : ( msec / 1000.0 );
+        NSEvent       *event       = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                            untilDate:[NSDate dateWithTimeIntervalSinceNow:timeout_sec]
+                                               inMode:NSDefaultRunLoopMode
+                                              dequeue:YES];
+        if ( event ) {
+            [NSApp sendEvent:event];
+        }
+    }
 }
 
 /*
@@ -440,17 +453,24 @@ int fgPlatformGetModifiers( int state )
 
 void fgPlatformProcessSingleEvent( void )
 {
-    PART_IMPL;
-    if ( fgStructure.CurrentWindow ) {
-        fgPlatformSetWindow( fgStructure.CurrentWindow );
-        // display() would be called here or via a callback mechanism
-    }
-    NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny
-                                        untilDate:[NSDate distantPast]
-                                           inMode:NSDefaultRunLoopMode
-                                          dequeue:YES];
-    if ( event ) {
-        [NSApp sendEvent:event];
+    @autoreleasepool {
+        // Process all pending Cocoa events
+        while ( true ) {
+            NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                                untilDate:[NSDate distantPast] // Return immediately
+                                                   inMode:NSDefaultRunLoopMode
+                                                  dequeue:YES];
+            if ( !event )
+                break; // Exit when no more events are pending
+            [NSApp sendEvent:event];
+
+            // TODO: Do we need to also do: [NSApp updateWindows];
+        }
+
+        // Set the current window’s OpenGL context after event processing
+        if ( fgStructure.CurrentWindow ) {
+            fgPlatformSetWindow( fgStructure.CurrentWindow );
+        }
     }
 }
 
@@ -546,7 +566,63 @@ int* fgPlatformGlutGetModeValues( GLenum eWhat, int* size )
 // WINDOW
 ///////////////////////////////////////////
 
-#if 1
+extern void fghOnReshapeNotify( SFG_Window *window, int width, int height, GLboolean forceNotify );
+extern void fghOnPositionNotify( SFG_Window *window, int x, int y, GLboolean forceNotify );
+
+@interface                       fgWindowDelegate : NSObject <NSWindowDelegate>
+@property ( assign ) SFG_Window *fgWindow; // Freeglut’s window structure
+@end
+
+@implementation fgWindowDelegate
+/*
+ * Handle window resize events - notify freeglut
+ */
+- (void)windowDidResize:(NSNotification *)notification
+{
+    NSWindow *window = [notification object];
+    NSRect    frame  = [window contentRectForFrameRect:[window frame]];
+
+    /* Update state and call callback, if there was a change */
+    fghOnPositionNotify( self.fgWindow, frame.origin.x, frame.origin.y, GL_FALSE );
+    fghOnReshapeNotify( self.fgWindow, frame.size.width, frame.size.height, GL_FALSE );
+
+    // Update OpenGL viewport
+    // NSOpenGLContext *context = (NSOpenGLContext *)self.fgWindow->Window.Context;
+    // [context makeCurrentContext];
+    // glViewport( 0, 0, width, height );
+
+    // Call freeglut’s reshape callback if set
+    // if ( self.fgWindow->CallBacks[WCB_Reshape] ) {
+    //     FGCBReshapeUC func = (FGCBReshapeUC)self.fgWindow->CallBacks[WCB_Reshape];
+    //     func( width, height, self.fgWindow->CallbackDatas[WCB_Reshape] );
+    // }
+}
+
+- (BOOL)windowShouldClose:(NSWindow *)sender
+{
+    glutDestroyWindow( self.fgWindow->ID ); // Freeglut’s window cleanup
+    return YES;
+}
+@end
+
+/*
+ * Freeglut request a window resize
+ */
+void fgPlatformReshapeWindow( SFG_Window *window, int width, int height )
+{
+    printf( "fgPlatformReshapeWindow, width: %d, height: %d\n", width, height );
+    NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
+    [nsWindow setContentSize:NSMakeSize( width, height )];
+
+    // Update OpenGL viewport
+    [(NSOpenGLContext *)window->Window.Context makeCurrentContext];
+    glViewport( 0, 0, width, height );
+
+    // Todo: this is for fullscreen toggle
+    // window->State.pWState.OldWidth  = width;
+    // window->State.pWState.OldHeight = height;
+}
+
 void fgPlatformOpenWindow( SFG_Window *window,
     const char                        *title,
     GLboolean                          positionUse,
@@ -558,16 +634,15 @@ void fgPlatformOpenWindow( SFG_Window *window,
     GLboolean                          gameMode,
     GLboolean                          isSubWindow )
 {
-    // 1. Determine pixel format based on fgState.DisplayMode
+    // 1. Define pixel format attributes based on fgState.DisplayMode
     NSOpenGLPixelFormatAttribute attrs[32];
     int                          attrIndex = 0;
     attrs[attrIndex++]                     = NSOpenGLPFAOpenGLProfile;
-    // attrs[attrIndex++]                     = NSOpenGLProfileVersion3_2Core; // Default to a modern profile
-    attrs[attrIndex++] = NSOpenGLProfileVersionLegacy; // Use legacy profile for now, TODO: query glutInitContextVersion
-    attrs[attrIndex++] = NSOpenGLPFAColorSize;
-    attrs[attrIndex++] = 24; // RGB 8 bits each
-    attrs[attrIndex++] = NSOpenGLPFAAlphaSize;
-    attrs[attrIndex++] = 8;
+    attrs[attrIndex++]                     = NSOpenGLProfileVersionLegacy; // Legacy profile; update as needed
+    attrs[attrIndex++]                     = NSOpenGLPFAColorSize;
+    attrs[attrIndex++]                     = 24; // 8 bits per RGB channel
+    attrs[attrIndex++]                     = NSOpenGLPFAAlphaSize;
+    attrs[attrIndex++]                     = 8;
     if ( fgState.DisplayMode & GLUT_DOUBLE ) {
         attrs[attrIndex++] = NSOpenGLPFADoubleBuffer;
     }
@@ -591,8 +666,14 @@ void fgPlatformOpenWindow( SFG_Window *window,
     }
     window->Window.pContext.PixelFormat = pixelFormat;
 
-    // 2. Create NSWindow
-    NSRect frame = NSMakeRect( positionUse ? x : 0, positionUse ? y : 0, sizeUse ? w : 300, sizeUse ? h : 300 );
+    // 2. Create NSOpenGLView with the pixel format
+    NSRect        frame = NSMakeRect( positionUse ? x : 0, positionUse ? y : 0, sizeUse ? w : 300, sizeUse ? h : 300 );
+    NSOpenGLView *openGLView = [[NSOpenGLView alloc] initWithFrame:frame pixelFormat:pixelFormat];
+    if ( !openGLView ) {
+        fgError( "Failed to create NSOpenGLView" );
+    }
+
+    // 3. Create NSWindow and set NSOpenGLView as content view
     NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable |
                               NSWindowStyleMaskResizable;
     if ( window->IsMenu || gameMode ) {
@@ -602,142 +683,38 @@ void fgPlatformOpenWindow( SFG_Window *window,
                                                      styleMask:style
                                                        backing:NSBackingStoreBuffered
                                                          defer:NO];
+    [nsWindow setContentView:openGLView];
     [nsWindow setTitle:[NSString stringWithUTF8String:title ? title : "freeglut"]];
     window->Window.Handle = nsWindow;
 
-    // 3. Create NSOpenGLContext
-    NSOpenGLContext *context;
-    if ( window->IsMenu && fgStructure.MenuContext ) {
-        NSLog( @"Menu context found" );
-        context = (NSOpenGLContext *)fgStructure.MenuContext->MContext;
-    }
-    else {
-        NSLog( @"Creating OpenGL context" );
-        context = [[NSOpenGLContext alloc] initWithFormat:pixelFormat shareContext:nil];
-    }
+    // 4. Set window delegate
+    fgWindowDelegate *delegate = [[fgWindowDelegate alloc] init];
+    delegate.fgWindow          = window;
+    [nsWindow setDelegate:delegate];
+
+    // 5. Retrieve the NSOpenGLContext from the NSOpenGLView
+    NSOpenGLContext *context = [openGLView openGLContext];
     if ( !context ) {
-        fgError( "Failed to create OpenGL context" );
+        fgError( "Failed to retrieve NSOpenGLContext from NSOpenGLView" );
     }
     window->Window.Context = context;
 
-    // 4. Attach context to window
-    [context setView:[nsWindow contentView]];
-
-    // 5. Make context current
+    // 6. Make the context current for OpenGL rendering
     [context makeCurrentContext];
 
+    // 7. Log OpenGL version (optional, for debugging)
     const GLubyte *version = glGetString( GL_VERSION );
     NSLog( @"OpenGL Version: %s", version );
 
-    // 6. Display the window (unless it’s a menu)
+    // 8. Show the window if not a menu
     if ( !window->IsMenu ) {
         [nsWindow makeKeyAndOrderFront:nil];
         window->State.Visible = GL_TRUE;
     }
 
-    // 7. Initialize window state
+    // 9. Store initial window size
     window->State.pWState.OldWidth  = frame.size.width;
     window->State.pWState.OldHeight = frame.size.height;
-}
-#else
-
-/*
- * Opens a window. Requires a SFG_Window object created and attached
- * to the freeglut structure. OpenGL context is created here.
- */
-void fgPlatformOpenWindow( SFG_Window *window,
-    const char                        *title,
-    GLboolean                          positionUse,
-    int                                x,
-    int                                y,
-    GLboolean                          sizeUse,
-    int                                w,
-    int                                h,
-    GLboolean                          gameMode,
-    GLboolean                          isSubWindow )
-{
-    [NSApplication sharedApplication];
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-    NSOpenGLPixelFormatAttribute attrs[] = {
-        // NSOpenGLPFATripleBuffer,
-        NSOpenGLPFADoubleBuffer,
-        NSOpenGLPFAColorSize,
-        24,
-        NSOpenGLPFAAlphaSize,
-        8,
-        NSOpenGLPFADepthSize,
-        24,
-        NSOpenGLPFAStencilSize,
-        8,
-        NSOpenGLPFAOpenGLProfile,
-        NSOpenGLProfileVersionLegacy,
-        0 // Null terminator
-    };
-
-    // clang-format on
-    NSOpenGLPixelFormat *pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
-    if ( !pixelFormat ) {
-        NSLog( @"Failed to create pixel format" );
-        return;
-    }
-
-    window->Window.pContext.PixelFormat = pixelFormat;
-
-    // 2. Create NSWindow
-    // Create the window
-    NSRect    frame    = NSMakeRect( 0, 0, 800, 600 );
-    NSWindow *nsWindow = [[NSWindow alloc]
-        initWithContentRect:frame
-                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
-                    backing:NSBackingStoreBuffered
-                      defer:NO];
-    [nsWindow setTitle:@"OpenGL Test"];
-    window->Window.Handle = nsWindow;
-
-    // Create and set up the OpenGL view
-    // NSOpenGLView *openglView = [[NSOpenGLView alloc] initWithFrame:frame pixelFormat:pixelFormat];
-    // [nsWindow setContentView:openglView];
-
-    // 3. Create NSOpenGLContext
-    NSOpenGLContext *context = [[NSOpenGLContext alloc] initWithFormat:pixelFormat shareContext:nil];
-    [context makeCurrentContext];
-    const GLubyte *version = glGetString( GL_VERSION );
-    NSLog( @"OpenGL Version: %s", version );
-    window->Window.Context = context;
-
-    // 4. Attach context to window
-    [context setView:[nsWindow contentView]];
-
-    // 6. Display the window (unless it’s a menu)
-    if ( !window->IsMenu ) {
-        [nsWindow makeKeyAndOrderFront:nil];
-        window->State.Visible = GL_TRUE;
-    }
-
-    // 7. Initialize window state
-    window->State.pWState.OldWidth  = frame.size.width;
-    window->State.pWState.OldHeight = frame.size.height;
-
-    // 5. Make context current
-    [context makeCurrentContext];
-}
-#endif
-
-/*
- * Request a window resize
- */
-void fgPlatformReshapeWindow( SFG_Window *window, int width, int height )
-{
-    NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
-    [nsWindow setContentSize:NSMakeSize( width, height )];
-
-    // Update OpenGL viewport
-    [(NSOpenGLContext *)window->Window.Context makeCurrentContext];
-    glViewport( 0, 0, width, height );
-
-    // Update stored state
-    window->State.pWState.OldWidth  = width;
-    window->State.pWState.OldHeight = height;
 }
 
 /*
