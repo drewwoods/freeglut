@@ -245,21 +245,7 @@ ELSEIF(OGC)
 
 ELSEIF(FREEGLUT_COCOA)
     LIST(APPEND FREEGLUT_SRCS
-        src/cocoa/fg_cmap_cocoa.m
-        src/cocoa/fg_cursor_cocoa.m
-        src/cocoa/fg_display_cocoa.m
-        src/cocoa/fg_glut_definitions_cocoa.m
-        src/cocoa/fg_ext_cocoa.m
-        src/cocoa/fg_gamemode_cocoa.m
-        src/cocoa/fg_init_cocoa.m
-        src/cocoa/fg_internal_cocoa.h
-        src/cocoa/fg_input_devices_cocoa.m
-        src/cocoa/fg_joystick_cocoa.m
-        src/cocoa/fg_main_cocoa.m
-        src/cocoa/fg_spaceball_cocoa.m
-        src/cocoa/fg_state_cocoa.m
-        src/cocoa/fg_structure_cocoa.m
-        src/cocoa/fg_window_cocoa.m
+        src/cocoa/fg_combined_cocoa.m
     )
 
 ELSE()
@@ -489,10 +475,12 @@ ENDIF()
 IF(FREEGLUT_COCOA)
     FIND_PACKAGE(OpenGL REQUIRED)
     INCLUDE_DIRECTORIES(${OPENGL_INCLUDE_DIR})
+    FIND_LIBRARY(OPENGL_FRAMEWORK OpenGL)
     FIND_LIBRARY(COCOA_FRAMEWORK Cocoa)
     FIND_LIBRARY(IOKIT_FRAMEWORK IOKit)
     FIND_LIBRARY(COREVIDEO_FRAMEWORK CoreVideo)
     LIST(APPEND LIBS ${COCOA_FRAMEWORK} ${OPENGL_FRAMEWORK} ${IOKIT_FRAMEWORK} ${COREVIDEO_FRAMEWORK})
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations")
 ENDIF()
 
 IF(CMAKE_COMPILER_IS_GNUCC)
@@ -571,6 +559,11 @@ ENDIF()
 # ######################
 # BUILD OPTIONS
 # ######################
+
+# add -ggdb -O0 to CFLAGS if we're in debug mode
+IF(CMAKE_BUILD_TYPE MATCHES Debug)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ggdb -O0")
+ENDIF()
 
 IF(FREEGLUT_BUILD_SHARED_LIBS)
     ADD_LIBRARY(freeglut SHARED ${FREEGLUT_SRCS})
@@ -744,6 +737,15 @@ ADD_DEMO(multi-touch     progs/demos/multi-touch/multi-touch.c)
 ADD_DEMO(shapes          progs/demos/shapes/shapes.c
                          progs/demos/shapes/glmatrix.h
                          progs/demos/shapes/glmatrix.c)
+
+IF(FREEGLUT_COCOA)
+    ADD_DEMO(smooth progs/demos/smooth/smooth.m
+        progs/demos/smooth/utils.h
+        progs/demos/smooth/common.h)
+ELSE()
+    ADD_DEMO(smooth progs/demos/smooth/smooth.c
+        progs/demos/smooth/common.h)
+ENDIF()
 ADD_DEMO(smooth_opengl3  progs/demos/smooth_opengl3/smooth_opengl3.c)
 ADD_DEMO(spaceball       progs/demos/spaceball/spaceball.c
                          progs/demos/spaceball/vmath.c
