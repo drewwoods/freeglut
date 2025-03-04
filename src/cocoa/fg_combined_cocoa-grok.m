@@ -20,7 +20,7 @@
 #include <unistd.h>
 #include <CoreVideo/CVDisplayLink.h> // Include for CVDisplayLinkRef
 
-// #define DEBUG_LOG
+#define DEBUG_LOG
 
 #ifdef DEBUG_LOG
 #define TODO_IMPL fgWarning( "%s not implemented yet in Cocoa", __func__ )
@@ -137,11 +137,12 @@ void fghPlatformGetCursorPos( const SFG_Window *window, GLboolean client, SFG_XY
 
 void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr, SFG_Window *CurrentWindow )
 {
-    PART_IMPL;
     // Release the OpenGL context
     NSOpenGLContext *context = (NSOpenGLContext *)CurrentWindow->Window.Context;
     [context makeCurrentContext];
     [context flushBuffer];
+
+    // TODO: Emulate VSync using CVDisplayLink
 }
 
 ///////////////////////////////////////////
@@ -407,7 +408,6 @@ fg_time_t fgPlatformSystemTime( void )
 void fgPlatformSleepForEvents( fg_time_t msec )
 {
     // Implement sleep functionality according to msec
-    PART_IMPL;
     @autoreleasepool {
         NSTimeInterval timeout_sec = ( msec == INT_MAX ) ? 1.0 : ( msec / 1000.0 );
         NSEvent       *event       = [NSApp nextEventMatchingMask:NSEventMaskAny
@@ -418,15 +418,6 @@ void fgPlatformSleepForEvents( fg_time_t msec )
             [NSApp sendEvent:event];
         }
     }
-}
-
-/*
- * Returns GLUT modifier mask for the state field of an X11 event.
- */
-int fgPlatformGetModifiers( int state )
-{
-    TODO_IMPL;
-    return 0;
 }
 
 void fgPlatformProcessSingleEvent( void )
@@ -464,7 +455,6 @@ void fgPlatformInitWork( SFG_Window *window )
     PART_IMPL;
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
     // Placeholder for initialization tasks
-    // Example: [nsWindow setDelegate:someDelegate];
 }
 
 void fgPlatformPosResZordWork( SFG_Window *window, unsigned int workMask )
@@ -585,7 +575,7 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
 
 @implementation fgOpenGLView
 
-+ (char)mapKeyToSpecial:(unichar)key
++ (char)mapKeyToSpecial:(uint16_t)key
 {
     switch ( key ) {
     case NSUpArrowFunctionKey:
@@ -630,13 +620,31 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
         return GLUT_KEY_HOME;
     case NSEndFunctionKey:
         return GLUT_KEY_END;
-    case NSInsertFunctionKey: // fallthrough
+    case NSInsertFunctionKey:
     case NSInsertCharFunctionKey:
         return GLUT_KEY_INSERT;
 
     case NSDeleteFunctionKey:
     case NSDeleteCharFunctionKey:
         return GLUT_KEY_DELETE;
+
+    // undocumented key codes
+    case 0x38: // Left Shift
+        return GLUT_KEY_SHIFT_L;
+    case 0x3C: // Right Shift
+        return GLUT_KEY_SHIFT_R;
+    case 0x3B: // Left Control
+        return GLUT_KEY_CTRL_L;
+    case 0x3E: // Right Control
+        return GLUT_KEY_CTRL_R;
+    case 0x3A: // Left Option (Alt)
+        return GLUT_KEY_ALT_L;
+    case 0x3D: // Right Option (Alt)
+        return GLUT_KEY_ALT_R;
+    case 0x37: // Left Command
+        return GLUT_KEY_SUPER_L;
+    case 0x36: // Right Command
+        return GLUT_KEY_SUPER_R;
     }
 
     return (char)key;
@@ -645,6 +653,25 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
 - (BOOL)acceptsFirstResponder
 {
     return YES; // Allow the view to receive keyboard events
+}
+
+- (void)updateModifiers:(NSEvent *)event
+{
+    // Update the modifier key state
+    int modifiers = 0;
+    if ( [event modifierFlags] & NSEventModifierFlagShift ) {
+        modifiers |= GLUT_ACTIVE_SHIFT;
+    }
+    if ( [event modifierFlags] & NSEventModifierFlagControl ) {
+        modifiers |= GLUT_ACTIVE_CTRL;
+    }
+    if ( [event modifierFlags] & NSEventModifierFlagOption ) {
+        modifiers |= GLUT_ACTIVE_ALT;
+    }
+    if ( [event modifierFlags] & NSEventModifierFlagCommand ) {
+        modifiers |= GLUT_ACTIVE_SUPER;
+    }
+    fgState.Modifiers = modifiers;
 }
 
 #pragma mark Mouse Section
@@ -700,6 +727,8 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
         return;
     }
 
+    [self updateModifiers:event];
+
     NSPoint mouseLoc = [self convertPoint:[event locationInWindow] fromView:nil];
     int     x        = (int)mouseLoc.x;
     int     y        = (int)( self.bounds.size.height - mouseLoc.y ); // Flip y for OpenGL
@@ -712,6 +741,8 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
     if ( self.fgWindow ) {
         return;
     }
+
+    [self updateModifiers:event];
 
     NSPoint mouseLoc = [self convertPoint:[event locationInWindow] fromView:nil];
     int     x        = (int)mouseLoc.x;
@@ -726,6 +757,8 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
         return;
     }
 
+    [self updateModifiers:event];
+
     NSPoint mouseLoc = [self convertPoint:[event locationInWindow] fromView:nil];
     int     x        = (int)mouseLoc.x;
     int     y        = (int)( self.bounds.size.height - mouseLoc.y );
@@ -737,6 +770,8 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
     if ( !self.fgWindow ) {
         return;
     }
+
+    [self updateModifiers:event];
 
     static double bufferedX = 0.0;
     static double bufferedY = 0.0;
@@ -786,6 +821,8 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
         return;
     }
 
+    [self updateModifiers:event];
+
     NSPoint mouseLoc = [self convertPoint:[[self window] mouseLocationOutsideOfEventStream] fromView:nil];
     int     x        = (int)mouseLoc.x;
     int     y        = (int)( self.bounds.size.height - mouseLoc.y ); // Flip y-coordinate for OpenGL
@@ -808,11 +845,13 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
         return;
     }
 
+    [self updateModifiers:event];
+
     NSPoint mouseLoc = [self convertPoint:[[self window] mouseLocationOutsideOfEventStream] fromView:nil];
     int     x        = (int)mouseLoc.x;
     int     y        = (int)( self.bounds.size.height - mouseLoc.y );
 
-    unichar key       = [[event charactersIgnoringModifiers] characterAtIndex:0];
+    uint16_t key       = [[event charactersIgnoringModifiers] characterAtIndex:0];
     char    convKey   = [fgOpenGLView mapKeyToSpecial:key];
     BOOL    isSpecial = ( convKey != key );
 
@@ -821,6 +860,52 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
     }
     else {
         INVOKE_WCB( *self.fgWindow, KeyboardUp, ( convKey, x, y ) );
+    }
+}
+
+// Handles individual modifier key changes
+- (void)flagsChanged:(NSEvent *)event
+{
+    if ( !self.fgWindow ) {
+        return;
+    }
+
+    NSEventModifierFlags flags   = [event modifierFlags];
+    uint16_t             keyCode = [event keyCode];
+
+    int  state      = -1;
+    char specialKey = [fgOpenGLView mapKeyToSpecial:keyCode];
+
+    switch ( specialKey ) {
+    case GLUT_KEY_SHIFT_L:
+    case GLUT_KEY_SHIFT_R:
+        state = ( flags & NSEventModifierFlagShift ) ? GLUT_DOWN : GLUT_UP;
+        break;
+    case GLUT_KEY_CTRL_L:
+    case GLUT_KEY_CTRL_R:
+        state = ( flags & NSEventModifierFlagControl ) ? GLUT_DOWN : GLUT_UP;
+        break;
+    case GLUT_KEY_ALT_L:
+    case GLUT_KEY_ALT_R: // Right Option (Alt)
+        state = ( flags & NSEventModifierFlagOption ) ? GLUT_DOWN : GLUT_UP;
+        break;
+    case GLUT_KEY_SUPER_L: // Note: FreeGLUT may not define this; use 0x75 if needed
+    case GLUT_KEY_SUPER_R: // Note: FreeGLUT may not define this; use 0x75 if needed
+        state = ( flags & NSEventModifierFlagCommand ) ? GLUT_DOWN : GLUT_UP;
+        break;
+    default:
+        return; // Ignore unmapped keys
+    }
+
+    NSPoint mouseLoc = [self convertPoint:[[self window] mouseLocationOutsideOfEventStream] fromView:nil];
+    int     x        = (int)mouseLoc.x;
+    int     y        = (int)( self.bounds.size.height - mouseLoc.y ); // Flip y for OpenGL
+
+    if ( state == GLUT_DOWN ) {
+        INVOKE_WCB( *self.fgWindow, Special, ( specialKey, x, y ) );
+    }
+    else {
+        INVOKE_WCB( *self.fgWindow, SpecialUp, ( specialKey, x, y ) );
     }
 }
 
