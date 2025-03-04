@@ -564,6 +564,19 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
     glutDestroyWindow( self.fgWindow->ID ); // Freeglut’s window cleanup
     return YES;
 }
+
+- (void)windowDidChangeOcclusionState:(NSNotification *)notification
+{
+    BOOL isVisible               = [notification.object occlusionState] & NSWindowOcclusionStateVisible;
+    self.fgWindow->State.Visible = isVisible;
+
+    if ( isVisible ) {
+        INVOKE_WCB( *self.fgWindow, WindowStatus, ( GLUT_FULLY_RETAINED ) );
+    }
+    else {
+        INVOKE_WCB( *self.fgWindow, WindowStatus, ( GLUT_FULLY_COVERED ) );
+    }
+}
 @end
 
 @interface                       fgOpenGLView : NSOpenGLView
@@ -819,10 +832,14 @@ static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events.
 
 - (void)reshape
 {
-    NSLog( @"reshape" );
     [super reshape];
 
-    NSWindow *window = _fgWindow->Window.Handle;
+    // TODO: move all these window guards to a separate method or delegate
+    if ( !self.fgWindow ) {
+        return;
+    }
+
+    NSWindow *window = self.fgWindow->Window.Handle;
     NSRect    frame  = [window contentRectForFrameRect:[window frame]];
 
     /* Update state and call callback, if there was a change */

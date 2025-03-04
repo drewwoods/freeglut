@@ -428,16 +428,11 @@ void fgProcessWork(SFG_Window *window)
     {
         if( window->State.Visible )
         {
-          printf("fghProcessWork: Redraw window %d\n", window->ID);
-          /* Strip out display work from the work list */
-          /* NB: do this before the display callback is called as user might
-           * call postredisplay in his display callback */
-          window->State.WorkMask &= ~GLUT_DISPLAY_WORK;
+            /* Strip out display work from the work list */
+            /* NB: do this before the display callback is called as user might call postredisplay in his display callback */
+            window->State.WorkMask &= ~GLUT_DISPLAY_WORK;
 
-          fghRedrawWindow(window);
-        } else {
-          printf("fghProcessWork: No redraw, Window %d is not visible\n",
-                 window->ID);
+            fghRedrawWindow ( window );
         }
     }
 }
