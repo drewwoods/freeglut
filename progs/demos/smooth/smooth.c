@@ -37,12 +37,14 @@
 
 #include "GL/freeglut_std.h"
 #include <GL/freeglut.h>
-#include <OpenGL/OpenGL.h>
-#include <limits.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+
+#include "utils.h"
+
+#ifdef __APPLE__
+#include "common.h"
+#endif
 
 /* report GL errors, if any, to stderr */
 void checkError(const char *functionName)
@@ -74,27 +76,6 @@ enum {
   numElements = sizeof(varray) / stride
 };
 
-void initRendering(void)
-{
-   glClearColor (0.0, 0.0, 0.0, 0.0);
-   checkError ("initRendering");
-}
-
-void initBuffer(void)
-{
-   glEnableClientState (GL_VERTEX_ARRAY);
-   glEnableClientState (GL_COLOR_ARRAY);
-   glColorPointer (3, GL_FLOAT, stride, varray);
-   glVertexPointer (2, GL_FLOAT, stride, varray+3);
-   checkError ("initBuffer");
-}
-
-void init(void) 
-{
-   initBuffer();
-   initRendering ();
-}
-
 void dumpInfo(void)
 {
    printf ("Vendor: %s\n", glGetString (GL_VENDOR));
@@ -105,95 +86,88 @@ void dumpInfo(void)
 }
 float angle = 0.0;
 
-struct Timer {
-  uint64_t start;
-  uint64_t next_update;
-  uint64_t count;
-  uint64_t interval;
-  float sum;
-  double sum_of_squares;
-  char buf[256];
-  float min, max;
-};
-
-const char *tend(struct Timer *self);
-
-const char *tstart(struct Timer *self) {
-  const char *msg = NULL;
-  if (self->start) {
-    msg = tend(self);
-  }
-  if (self->interval == 0) {
-    self->interval = 10e9;
-  }
-  self->start = clock_gettime_nsec_np(CLOCK_REALTIME);
-  if (!self->next_update) {
-    self->next_update = self->start + self->interval;
+#if 0
+void displayCB(void) {
+  printf("displayCB start\n");
+  const char *fps = get_fps(1e9);
+  if (fps) {
+    printf("%s\n", fps);
   }
 
-  return msg;
+  // Debug: Print viewport
+  GLint viewport[4];
+  glGetIntegerv(GL_VIEWPORT, viewport);
+  printf("Viewport: [%d, %d, %d, %d]\n", viewport[0], viewport[1], viewport[2],
+         viewport[3]);
+
+  // Debug: Print projection matrix
+  GLdouble projMatrix[16];
+  glGetDoublev(GL_PROJECTION_MATRIX, projMatrix);
+  printf("Projection Matrix in displayCB:\n");
+  for (int i = 0; i < 4; i++) {
+    printf("  [%f, %f, %f, %f]\n", projMatrix[i], projMatrix[i + 4],
+           projMatrix[i + 8], projMatrix[i + 12]);
+  }
+
+  // Debug: Print modelview matrix before drawing
+  GLdouble modelMatrix[16];
+  glClearColor(0.1, 0.2, 0.3, 1.0);
+  glClear(GL_COLOR_BUFFER_BIT);
+
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+  glRotatef(angle, 0, 0, 1);
+  glGetDoublev(GL_MODELVIEW_MATRIX, modelMatrix);
+  printf("Modelview Matrix in displayCB:\n");
+  for (int i = 0; i < 4; i++) {
+    printf("  [%f, %f, %f, %f]\n", modelMatrix[i], modelMatrix[i + 4],
+           modelMatrix[i + 8], modelMatrix[i + 12]);
+  }
+  angle += 0.1;
+
+  glBegin(GL_TRIANGLES);
+  glColor3f(1.0, 0.0, 0.0);
+  glVertex2d(0.0, 0.5);
+  glColor3f(0.0, 1.0, 0.0);
+  glVertex2d(0.5, -0.5);
+  glColor3f(0.0, 0.0, 1.0);
+  glVertex2d(-0.5, -0.5);
+  glEnd();
+
+  glutSwapBuffers();
+  printf("displayCB end\n");
 }
 
-const char *tend(struct Timer *self) {
-  uint64_t now = clock_gettime_nsec_np(CLOCK_REALTIME);
-  float dur = (now - self->start) / 1e6;
-  self->min = (self->min == 0 || dur < self->min) ? dur : self->min;
-  self->max = (dur > self->max) ? dur : self->max;
-  self->sum_of_squares += dur * dur;
-  self->sum += dur;
-  self->count++;
+void reshape(int w, int h) {
+  printf("reshape start, width: %d, height: %d\n", w, h);
+  glViewport(0, 0, (GLsizei)w, (GLsizei)h);
 
-  const char *msg = NULL;
+  double aspect = (double)w / h;
+  glMatrixMode(GL_PROJECTION);
+  glLoadIdentity();
+  glOrtho(-aspect, aspect, -1.0, 1.0, -1.0, 1.0);
 
-  if (now > self->next_update) {
-    float avg = self->sum / self->count;
-    float var = self->sum_of_squares / self->count - avg * avg;
-    snprintf(self->buf, sizeof(self->buf),
-             "Avg: %5.2fms   Min/Max: %5.2f/%5.2fms   STD:%.2fms   CNT: %llu",
-             avg, self->min, self->max, sqrt(var), self->count);
-    msg = self->buf;
-    self->next_update += self->interval;
-    self->min = INT_MAX;
-    self->max = INT_MIN;
-    self->sum_of_squares = 0;
-    self->sum = 0;
-    self->count = 0;
+  // Debug: Print projection matrix
+  GLdouble projMatrix[16];
+  glGetDoublev(GL_PROJECTION_MATRIX, projMatrix);
+  printf("Projection Matrix in reshape:\n");
+  for (int i = 0; i < 4; i++) {
+    printf("  [%f, %f, %f, %f]\n", projMatrix[i], projMatrix[i + 4],
+           projMatrix[i + 8], projMatrix[i + 12]);
   }
 
-  self->start = 0;
-
-  return msg;
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+  glutPostRedisplay();
+  printf("reshape end\n");
+  checkError("reshape");
 }
-
-static const char *get_fps(float update_interval_ns) {
-  static struct Timer timer;
-  timer.interval = update_interval_ns;
-  const char *msg = tstart(&timer);
-  static char buf[256];
-
-  if (msg) {
-    snprintf(buf, sizeof(buf), "%15s -- %s", "Frame Time", msg);
-    return buf;
-  }
-  return NULL;
-}
+#else
 
 // #import <Cocoa/Cocoa.h>
 void displayCB(void) {
   // Make the context current if it exists
-  //   if (fgStructure.CurrentWindow &&
-  //   fgStructure.CurrentWindow->Window.Context) {
-  //     [(NSOpenGLContext *)
-  //             fgStructure.CurrentWindow->Window.Context makeCurrentContext];
-  //   }
-
-  //   if ([NSOpenGLContext currentContext] == nil) {
-  //     printf("No current OpenGL context in displayCB!\n");
-  //   } else {
-  //   }
-  //   printf("displayCB\n");
-
-  const char *fps = get_fps(1e9);
+  const char *fps = get_fps(5e9);
   if (fps) {
     printf("%s\n", fps);
   }
@@ -201,6 +175,7 @@ void displayCB(void) {
   glClearColor(0.1, 0.2, 0.3, 1.0);
   glClear(GL_COLOR_BUFFER_BIT);
 
+  glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
   glRotatef(angle, 0, 0, 1);
   angle += 0.1;
@@ -218,20 +193,24 @@ void displayCB(void) {
   //   glutPostRedisplay();
 }
 
-void reshape (int w, int h)
-{
-  printf("reshape\n");
+void reshape(int w, int h) {
+  printf("reshape, width: %d, height: %d\n", w, h);
   glViewport(0, 0, (GLsizei)w, (GLsizei)h);
+
+  double aspect = (double)w / h;
   glMatrixMode(GL_PROJECTION);
   glLoadIdentity();
+  glOrtho(-aspect, aspect, -1.0, 1.0, -1.0, 1.0);
   glMatrixMode(GL_MODELVIEW);
   glLoadIdentity();
   glutPostRedisplay();
   checkError("reshape");
 }
+#endif
 
 void keyboard(unsigned char key, int x, int y)
 {
+   printf("Key  pressed: %d, '%c', at (%d, %d)\n", key, key, x, y);
    switch (key) {
       case 27:
          exit (0);
@@ -239,43 +218,77 @@ void keyboard(unsigned char key, int x, int y)
    }
 }
 
-#if 1
+
+void keyboardUp(unsigned char key, int x, int y)
+{
+   printf("Key released: %d, '%c', at (%d, %d)\n", key, key, x, y);
+}
+
+void special(int key, int x, int y)
+{
+   printf("Special key pressed: %d at (%d, %d)\n", key, x, y);
+}
+
+void specialUp(int key, int x, int y)
+{
+   printf("Special key released: %d at (%d, %d)\n", key, x, y);
+}
+
+void passiveMotion(int x, int y)
+{
+   printf("\rMouse moved to (%d, %d)", x, y);
+   fflush(stdout);
+}
+
+void motion(int x, int y)
+{
+   printf("Mouse dragged to (%d, %d)\n", x, y);
+}
+
+void mouse(int button, int state, int x, int y)
+{
+   printf("Button %d is %s at (%d, %d)\n", button,
+          state == GLUT_DOWN ? "down" : "up", x, y);
+}
+
+void mouseWheel(int wheel, int direction, int x, int y)
+{
+  static int count[2];
+  count[wheel] += direction > 0 ? 1 : -1;
+  printf("Wheel number %d is spun %s at (%d, %d), count: x:%d, y:%d\n", wheel,
+          direction > 0 ? "up" : "down", x, y, count[1], count[0]);
+}
+
+void timer(int value)
+{
+   glutTimerFunc(16, timer, value + 1);
+   glutPostRedisplay();
+}
+
 int main(int argc, char** argv)
 {
    glutInit (&argc, argv);
    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
-   glutInitWindowSize (500, 500); 
+   glutInitWindowSize(800, 600);
    glutInitWindowPosition (100, 100);
    glutCreateWindow (argv[0]);
    dumpInfo ();
    // init ();
    glutDisplayFunc(displayCB);
    glutReshapeFunc (reshape);
-   glutIdleFunc(displayCB);
-   // glutKeyboardFunc (keyboard);
-   glutPostRedisplay(); // Trigger an initial redraw
+  //  glutIdleFunc(displayCB);
+   glutKeyboardFunc(keyboard);
+   glutKeyboardUpFunc(keyboardUp);
+   glutSpecialFunc(special);
+   glutSpecialUpFunc(specialUp);
+   glutPassiveMotionFunc(passiveMotion);
+   glutMotionFunc(motion);
+   glutMouseFunc(mouse);
+   glutMouseWheelFunc(mouseWheel);
+   glutTimerFunc(16, timer, 0);
+   // glutPostRedisplay(); // Trigger an initial redraw
 
    // while(1);
    glutMainLoop();
    return 0;
 }
-
-#else
-
-int main(int argc, char **argv) {
-  glutInit(&argc, argv);
-  glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB);
-  glutInitWindowSize(500, 500);
-  glutInitWindowPosition(100, 100);
-  int win = glutCreateWindow(argv[0]);
-
-  printf("Vendor: %s\n", glGetString(GL_VENDOR));
-  printf("Renderer: %s\n", glGetString(GL_RENDERER));
-  printf("Version: %s\n", glGetString(GL_VERSION));
-  printf("GLSL: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
-
-  glutMainLoop();
-
-  return 0;
-}
-#endif
