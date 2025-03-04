@@ -150,7 +150,7 @@ void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr, SFG_Window *Cu
 
 #include <dlfcn.h>
 
-GLUTproc fgPlatformGetGLUTProcAddress( const char* procName )
+GLUTproc fgPlatformGetGLUTProcAddress( const char *procName )
 {
     /* optimization: quick initial check */
     if ( strncmp( procName, "glut", 4 ) != 0 )
@@ -170,7 +170,7 @@ GLUTproc fgPlatformGetGLUTProcAddress( const char* procName )
     return NULL;
 }
 
-SFG_Proc fgPlatformGetProcAddress( const char* procName )
+SFG_Proc fgPlatformGetProcAddress( const char *procName )
 {
     static void *glHandle = NULL;
     if ( glHandle == NULL ) {
@@ -291,27 +291,6 @@ void fg_serial_flush( SERIALPORT *port )
 #import <CoreVideo/CVDisplayLink.h>
 #include <sys/time.h>
 
-#if 0
-// Window delegate to handle close events
-@interface AppDelegate : NSObject <NSWindowDelegate>
-@end
-
-@implementation AppDelegate
-- (BOOL)windowShouldClose:(NSWindow *)sender
-{
-    return YES;
-}
-@end
-
-// Custom NSOpenGLView subclass for OpenGL rendering
-@interface MyOpenGLView : NSOpenGLView
-@end
-
-@implementation MyOpenGLView
-
-@end
-#endif
-
 void fgPlatformInitialize( const char *displayName )
 {
     // Initialize the Cocoa application
@@ -373,7 +352,6 @@ void fgPlatformDestroyContext( SFG_PlatformDisplay pDisplay, SFG_WindowContextTy
     [context clearDrawable]; // Ensure the context is detached from any drawable
     [context release];
 }
-
 
 ///////////////////////////////////////////
 // INPUT DEVICES
@@ -556,7 +534,7 @@ int fgPlatformGlutGet( GLenum eWhat )
     return 0;
 }
 
-int* fgPlatformGlutGetModeValues( GLenum eWhat, int* size )
+int *fgPlatformGlutGetModeValues( GLenum eWhat, int *size )
 {
     TODO_IMPL;
     return NULL;
@@ -566,43 +544,292 @@ int* fgPlatformGlutGetModeValues( GLenum eWhat, int* size )
 // WINDOW
 ///////////////////////////////////////////
 
+// #define MOUSEWHEEL_X_AXIS // Define to enable horizontal mouse wheel events
+
 extern void fghOnReshapeNotify( SFG_Window *window, int width, int height, GLboolean forceNotify );
 extern void fghOnPositionNotify( SFG_Window *window, int x, int y, GLboolean forceNotify );
+
+static const int    fgMouseYWheel    = 0;
+static const int    fgMouseXWheel    = 1;
+static const double fgWheelThreshold = 1.0; // Threshold for mouse wheel events. TODO: decide on a suitable value
 
 @interface                       fgWindowDelegate : NSObject <NSWindowDelegate>
 @property ( assign ) SFG_Window *fgWindow; // Freeglut’s window structure
 @end
 
 @implementation fgWindowDelegate
-/*
- * Handle window resize events - notify freeglut
- */
-- (void)windowDidResize:(NSNotification *)notification
-{
-    NSWindow *window = [notification object];
-    NSRect    frame  = [window contentRectForFrameRect:[window frame]];
-
-    /* Update state and call callback, if there was a change */
-    fghOnPositionNotify( self.fgWindow, frame.origin.x, frame.origin.y, GL_FALSE );
-    fghOnReshapeNotify( self.fgWindow, frame.size.width, frame.size.height, GL_FALSE );
-
-    // Update OpenGL viewport
-    // NSOpenGLContext *context = (NSOpenGLContext *)self.fgWindow->Window.Context;
-    // [context makeCurrentContext];
-    // glViewport( 0, 0, width, height );
-
-    // Call freeglut’s reshape callback if set
-    // if ( self.fgWindow->CallBacks[WCB_Reshape] ) {
-    //     FGCBReshapeUC func = (FGCBReshapeUC)self.fgWindow->CallBacks[WCB_Reshape];
-    //     func( width, height, self.fgWindow->CallbackDatas[WCB_Reshape] );
-    // }
-}
 
 - (BOOL)windowShouldClose:(NSWindow *)sender
 {
     glutDestroyWindow( self.fgWindow->ID ); // Freeglut’s window cleanup
     return YES;
 }
+@end
+
+@interface                       fgOpenGLView : NSOpenGLView
+@property ( assign ) SFG_Window *fgWindow; // Freeglut’s window structure
+@end
+
+@implementation fgOpenGLView
+
++ (char)mapKeyToSpecial:(unichar)key
+{
+    switch ( key ) {
+    case NSUpArrowFunctionKey:
+        return GLUT_KEY_UP;
+    case NSDownArrowFunctionKey:
+        return GLUT_KEY_DOWN;
+    case NSLeftArrowFunctionKey:
+        return GLUT_KEY_LEFT;
+    case NSRightArrowFunctionKey:
+
+        return GLUT_KEY_RIGHT;
+    case NSF1FunctionKey:
+        return GLUT_KEY_F1;
+    case NSF2FunctionKey:
+        return GLUT_KEY_F2;
+    case NSF3FunctionKey:
+        return GLUT_KEY_F3;
+    case NSF4FunctionKey:
+        return GLUT_KEY_F4;
+    case NSF5FunctionKey:
+        return GLUT_KEY_F5;
+    case NSF6FunctionKey:
+        return GLUT_KEY_F6;
+    case NSF7FunctionKey:
+        return GLUT_KEY_F7;
+    case NSF8FunctionKey:
+        return GLUT_KEY_F8;
+    case NSF9FunctionKey:
+        return GLUT_KEY_F9;
+    case NSF10FunctionKey:
+        return GLUT_KEY_F10;
+    case NSF11FunctionKey:
+        return GLUT_KEY_F11;
+    case NSF12FunctionKey:
+        return GLUT_KEY_F12;
+
+    case NSPageUpFunctionKey:
+        return GLUT_KEY_PAGE_UP;
+    case NSPageDownFunctionKey:
+        return GLUT_KEY_PAGE_DOWN;
+    case NSHomeFunctionKey:
+        return GLUT_KEY_HOME;
+    case NSEndFunctionKey:
+        return GLUT_KEY_END;
+    case NSInsertFunctionKey: // fallthrough
+    case NSInsertCharFunctionKey:
+        return GLUT_KEY_INSERT;
+
+    case NSDeleteFunctionKey:
+    case NSDeleteCharFunctionKey:
+        return GLUT_KEY_DELETE;
+    }
+
+    return (char)key;
+}
+
+- (BOOL)acceptsFirstResponder
+{
+    return YES; // Allow the view to receive keyboard events
+}
+
+#pragma mark Mouse Section
+
+// Enable mouse movement events
+- (BOOL)acceptsMouseMovedEvents
+{
+    return YES;
+}
+
+// Left button pressed
+- (void)mouseDown:(NSEvent *)event
+{
+    [self handleMouseEvent:event withButton:GLUT_LEFT_BUTTON state:GLUT_DOWN];
+}
+
+// Left button released
+- (void)mouseUp:(NSEvent *)event
+{
+    [self handleMouseEvent:event withButton:GLUT_LEFT_BUTTON state:GLUT_UP];
+}
+
+// Right button pressed
+- (void)rightMouseDown:(NSEvent *)event
+{
+    [self handleMouseEvent:event withButton:GLUT_RIGHT_BUTTON state:GLUT_DOWN];
+}
+
+// Right button released
+- (void)rightMouseUp:(NSEvent *)event
+{
+    [self handleMouseEvent:event withButton:GLUT_RIGHT_BUTTON state:GLUT_UP];
+}
+
+// Middle or other buttons pressed
+- (void)otherMouseDown:(NSEvent *)event
+{
+    int button = ( [event buttonNumber] == 2 ) ? GLUT_MIDDLE_BUTTON : [event buttonNumber];
+    [self handleMouseEvent:event withButton:button state:GLUT_DOWN];
+}
+
+// Middle or other buttons released
+- (void)otherMouseUp:(NSEvent *)event
+{
+    int button = ( [event buttonNumber] == 2 ) ? GLUT_MIDDLE_BUTTON : [event buttonNumber];
+    [self handleMouseEvent:event withButton:button state:GLUT_UP];
+}
+
+// Centralized handler for mouse events
+- (void)handleMouseEvent:(NSEvent *)event withButton:(int)button state:(int)state
+{
+    if ( !self.fgWindow ) {
+        return;
+    }
+
+    NSPoint mouseLoc = [self convertPoint:[event locationInWindow] fromView:nil];
+    int     x        = (int)mouseLoc.x;
+    int     y        = (int)( self.bounds.size.height - mouseLoc.y ); // Flip y for OpenGL
+    INVOKE_WCB( *self.fgWindow, Mouse, ( button, state, x, y ) );
+}
+
+// Passive motion: mouse moves with no buttons pressed
+- (void)mouseMoved:(NSEvent *)event
+{
+    if ( self.fgWindow ) {
+        return;
+    }
+
+    NSPoint mouseLoc = [self convertPoint:[event locationInWindow] fromView:nil];
+    int     x        = (int)mouseLoc.x;
+    int     y        = (int)( self.bounds.size.height - mouseLoc.y );
+    INVOKE_WCB( *self.fgWindow, Passive, ( x, y ) );
+}
+
+// Active motion: mouse moves with a button pressed
+- (void)mouseDragged:(NSEvent *)event
+{
+    if ( !self.fgWindow ) {
+        return;
+    }
+
+    NSPoint mouseLoc = [self convertPoint:[event locationInWindow] fromView:nil];
+    int     x        = (int)mouseLoc.x;
+    int     y        = (int)( self.bounds.size.height - mouseLoc.y );
+    INVOKE_WCB( *self.fgWindow, Motion, ( x, y ) );
+}
+
+- (void)scrollWheel:(NSEvent *)event
+{
+    if ( !self.fgWindow ) {
+        return;
+    }
+
+    static double bufferedX = 0.0;
+    static double bufferedY = 0.0;
+
+    // Get mouse coordinates in the view
+    NSPoint mouseLoc = [self convertPoint:[event locationInWindow] fromView:nil];
+    int     x        = (int)mouseLoc.x;
+    int     y        = (int)( self.bounds.size.height - mouseLoc.y ); // Flip y-axis for OpenGL
+
+    double deltaX = [event scrollingDeltaX];
+    double deltaY = [event scrollingDeltaY];
+
+    if ( [event hasPreciseScrollingDeltas] ) {
+        deltaX *= 0.1;
+        deltaY *= 0.1;
+    }
+
+#ifdef MOUSEWHEEL_X_AXIS
+    if ( fabs( bufferedX ) > fgWheelThreshold ) {
+        int direction = ( bufferedX > 0 ) ? GLUT_UP : GLUT_DOWN;
+        INVOKE_WCB( *self.fgWindow, MouseWheel, ( fgMouseXWheel, direction, x, y ) );
+        bufferedX = 0.0;
+    }
+    else {
+        bufferedX += deltaX;
+    }
+#endif
+
+    // TODO: Decide on a suitable threshold for scrolling events
+    // Macos sends a lot of small delta values, so we need to filter them if we want to match the behavior of other
+    // platforms
+    if ( fabs( bufferedY ) > fgWheelThreshold ) {
+        int direction = ( bufferedY > 0 ) ? GLUT_UP : GLUT_DOWN;
+        INVOKE_WCB( *self.fgWindow, MouseWheel, ( fgMouseYWheel, direction, x, y ) );
+        bufferedY = 0.0;
+    }
+    else {
+        bufferedY += deltaY;
+    }
+}
+
+#pragma mark Key Section
+
+- (void)keyDown:(NSEvent *)event
+{
+    if ( !self.fgWindow || ![[event characters] length] ) {
+        return;
+    }
+
+    NSPoint mouseLoc = [self convertPoint:[[self window] mouseLocationOutsideOfEventStream] fromView:nil];
+    int     x        = (int)mouseLoc.x;
+    int     y        = (int)( self.bounds.size.height - mouseLoc.y ); // Flip y-coordinate for OpenGL
+
+    unichar key       = [[event charactersIgnoringModifiers] characterAtIndex:0];
+    char    convKey   = [fgOpenGLView mapKeyToSpecial:key];
+    BOOL    isSpecial = ( convKey != key );
+
+    if ( isSpecial ) {
+        INVOKE_WCB( *self.fgWindow, Special, ( convKey, x, y ) );
+    }
+    else {
+        INVOKE_WCB( *self.fgWindow, Keyboard, ( convKey, x, y ) );
+    }
+}
+
+- (void)keyUp:(NSEvent *)event
+{
+    if ( !self.fgWindow || ![[event characters] length] ) {
+        return;
+    }
+
+    NSPoint mouseLoc = [self convertPoint:[[self window] mouseLocationOutsideOfEventStream] fromView:nil];
+    int     x        = (int)mouseLoc.x;
+    int     y        = (int)( self.bounds.size.height - mouseLoc.y );
+
+    unichar key       = [[event charactersIgnoringModifiers] characterAtIndex:0];
+    char    convKey   = [fgOpenGLView mapKeyToSpecial:key];
+    BOOL    isSpecial = ( convKey != key );
+
+    if ( isSpecial ) {
+        INVOKE_WCB( *self.fgWindow, SpecialUp, ( convKey, x, y ) );
+    }
+    else {
+        INVOKE_WCB( *self.fgWindow, KeyboardUp, ( convKey, x, y ) );
+    }
+}
+
+#pragma mark -
+
+/*
+ * Handle window resize events - notify freeglut
+ */
+
+- (void)reshape
+{
+    NSLog( @"reshape" );
+    [super reshape];
+
+    NSWindow *window = _fgWindow->Window.Handle;
+    NSRect    frame  = [window contentRectForFrameRect:[window frame]];
+
+    /* Update state and call callback, if there was a change */
+    fghOnPositionNotify( self.fgWindow, frame.origin.x, frame.origin.y, GL_FALSE );
+    fghOnReshapeNotify( self.fgWindow, frame.size.width, frame.size.height, GL_FALSE );
+}
+
 @end
 
 /*
@@ -666,14 +893,15 @@ void fgPlatformOpenWindow( SFG_Window *window,
     }
     window->Window.pContext.PixelFormat = pixelFormat;
 
-    // 2. Create NSOpenGLView with the pixel format
+    // 2. Create fgOpenGLView with the pixel format
     NSRect        frame = NSMakeRect( positionUse ? x : 0, positionUse ? y : 0, sizeUse ? w : 300, sizeUse ? h : 300 );
-    NSOpenGLView *openGLView = [[NSOpenGLView alloc] initWithFrame:frame pixelFormat:pixelFormat];
+    fgOpenGLView *openGLView = [[fgOpenGLView alloc] initWithFrame:frame pixelFormat:pixelFormat];
     if ( !openGLView ) {
-        fgError( "Failed to create NSOpenGLView" );
+        fgError( "Failed to create fgOpenGLView" );
     }
+    openGLView.fgWindow = window; // Link to the FreeGLUT window structure
 
-    // 3. Create NSWindow and set NSOpenGLView as content view
+    // 3. Create NSWindow and set fgOpenGLView as content view
     NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable |
                               NSWindowStyleMaskResizable;
     if ( window->IsMenu || gameMode ) {
@@ -683,19 +911,22 @@ void fgPlatformOpenWindow( SFG_Window *window,
                                                      styleMask:style
                                                        backing:NSBackingStoreBuffered
                                                          defer:NO];
-    [nsWindow setContentView:openGLView];
+    [nsWindow setAcceptsMouseMovedEvents:YES];
     [nsWindow setTitle:[NSString stringWithUTF8String:title ? title : "freeglut"]];
     window->Window.Handle = nsWindow;
+
+    // use the fgOpenGLView as the content view
+    [nsWindow setContentView:openGLView];
 
     // 4. Set window delegate
     fgWindowDelegate *delegate = [[fgWindowDelegate alloc] init];
     delegate.fgWindow          = window;
     [nsWindow setDelegate:delegate];
 
-    // 5. Retrieve the NSOpenGLContext from the NSOpenGLView
+    // 5. Retrieve the NSOpenGLContext from the fgOpenGLView
     NSOpenGLContext *context = [openGLView openGLContext];
     if ( !context ) {
-        fgError( "Failed to retrieve NSOpenGLContext from NSOpenGLView" );
+        fgError( "Failed to retrieve NSOpenGLContext from fgOpenGLView" );
     }
     window->Window.Context = context;
 
@@ -706,9 +937,10 @@ void fgPlatformOpenWindow( SFG_Window *window,
     const GLubyte *version = glGetString( GL_VERSION );
     NSLog( @"OpenGL Version: %s", version );
 
-    // 8. Show the window if not a menu
+    // 8. Show the window if not a menu and make it first responder
     if ( !window->IsMenu ) {
         [nsWindow makeKeyAndOrderFront:nil];
+        [nsWindow makeFirstResponder:openGLView]; // Ensure view receives events
         window->State.Visible = GL_TRUE;
     }
 
