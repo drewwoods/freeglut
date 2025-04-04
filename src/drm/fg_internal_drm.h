@@ -76,7 +76,7 @@ typedef struct fg_drm_device {
     EGLConfig  egl_config;
 
     /* Current context window */
-    SFG_Window *current_window;
+    void *current_window;
 } FGDRMDevice;
 
 typedef struct fg_drm_window {
@@ -87,6 +87,8 @@ typedef struct fg_drm_window {
     uint32_t            current_fb_id;
 } FGDRMWindow;
 
+typedef struct FGDRMDevice *SFG_PlatformDisplay;
+
 /* DRM State Management */
 extern FGDRMDevice fgDrmDevice;
 
@@ -94,10 +96,10 @@ extern FGDRMDevice fgDrmDevice;
 extern int      fgDrmInit( void );
 extern void     fgDrmClose( void );
 extern FGDRMFb *fgDrmFbGetFromBo( struct gbm_bo *bo );
-extern int      fgDrmCreateWindow( SFG_Window *window );
-extern void     fgDrmDestroyWindow( SFG_Window *window );
-extern void     fgDrmDisplayWindow( SFG_Window *window );
+extern int      fgDrmCreateWindow( void *window );
+extern void     fgDrmDestroyWindow( void *window );
+extern void     fgDrmDisplayWindow( void *window );
 extern void     fgDrmMainLoop( void );
-extern void     fgDrmSetCursor( SFG_Window *window, int cursorID );
+extern void     fgDrmSetCursor( void *window, int cursorID );
 
 #endif /* __FG_INTERNAL_DRM_H__ */

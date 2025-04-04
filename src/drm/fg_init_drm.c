@@ -168,7 +168,7 @@ int fgDrmInit( void )
     fgDrmDevice.fd = fgFindDrmDevice( &resources );
     if ( fgDrmDevice.fd < 0 || !resources ) {
         fgWarning( "Failed to open DRM device" );
-        return GLUT_FAILED_INITIALIZATION;
+        return -1;
     }
 
     /* Find a connected connector */
@@ -178,7 +178,7 @@ int fgDrmInit( void )
         drmModeFreeResources( resources );
         close( fgDrmDevice.fd );
         fgDrmDevice.fd = -1;
-        return GLUT_FAILED_INITIALIZATION;
+        return -1;
     }
 
     /* Find preferred mode or the highest resolution mode */
@@ -207,7 +207,7 @@ int fgDrmInit( void )
         drmModeFreeResources( resources );
         close( fgDrmDevice.fd );
         fgDrmDevice.fd = -1;
-        return GLUT_FAILED_INITIALIZATION;
+        return -1;
     }
 
     /* Find encoder */
@@ -231,7 +231,7 @@ int fgDrmInit( void )
             drmModeFreeResources( resources );
             close( fgDrmDevice.fd );
             fgDrmDevice.fd = -1;
-            return GLUT_FAILED_INITIALIZATION;
+            return -1;
         }
 
         fgDrmDevice.crtc_id = crtc_id;
@@ -261,7 +261,7 @@ int fgDrmInit( void )
         free( fgDrmDevice.mode );
         close( fgDrmDevice.fd );
         fgDrmDevice.fd = -1;
-        return GLUT_FAILED_INITIALIZATION;
+        return -1;
     }
 
     /* Initialize EGL */
@@ -272,7 +272,7 @@ int fgDrmInit( void )
         free( fgDrmDevice.mode );
         close( fgDrmDevice.fd );
         fgDrmDevice.fd = -1;
-        return GLUT_FAILED_INITIALIZATION;
+        return -1;
     }
 
     if ( !eglInitialize( fgDrmDevice.egl_display, NULL, NULL ) ) {
@@ -281,7 +281,7 @@ int fgDrmInit( void )
         free( fgDrmDevice.mode );
         close( fgDrmDevice.fd );
         fgDrmDevice.fd = -1;
-        return GLUT_FAILED_INITIALIZATION;
+        return -1;
     }
 
     /* Choose an EGL configuration */
@@ -312,20 +312,20 @@ int fgDrmInit( void )
         free( fgDrmDevice.mode );
         close( fgDrmDevice.fd );
         fgDrmDevice.fd = -1;
-        return GLUT_FAILED_INITIALIZATION;
+        return -1;
     }
 
     /* Initialize EGL API */
     eglBindAPI( EGL_OPENGL_API );
 
-    fgDisplay.pDisplay.drm = &fgDrmDevice;
+    fgDisplay.pDisplay = &fgDrmDevice;
 
     fgDisplay.ScreenWidth    = fgDrmDevice.mode->hdisplay;
     fgDisplay.ScreenHeight   = fgDrmDevice.mode->vdisplay;
     fgDisplay.ScreenWidthMM  = 0; /* TODO: get physical size from DRM */
     fgDisplay.ScreenHeightMM = 0;
 
-    return GLUT_SUCCESS;
+    return 0;
 }
 
 /*
