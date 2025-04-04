@@ -82,6 +82,8 @@ ENDIF()
 IF(NOT WIN32)
     # Wayland support
     OPTION(FREEGLUT_WAYLAND "Use Wayland (no X11)" OFF)
+    # DRM/KMS support (direct rendering without X11 or Wayland)
+    OPTION(FREEGLUT_DRM_KMS "Use DRM/KMS/GBM (no X11 or Wayland)" OFF)
 ENDIF()
 
 OPTION(FREEGLUT_COCOA "Build support for Cocoa" OFF)
@@ -263,6 +265,22 @@ ELSEIF(FREEGLUT_COCOA)
         src/cocoa/fg_input_devices_cocoa.c
         src/cocoa/fg_structure_cocoa.c
     )
+
+ELSEIF(FREEGLUT_DRM_KMS)
+        LIST(APPEND FREEGLUT_SRCS
+            src/drm/fg_cursor_drm.c
+            src/drm/fg_init_drm.c
+            src/drm/fg_internal_drm.h
+            src/drm/fg_input_devices_drm.c
+            src/drm/fg_main_drm.c
+            src/drm/fg_state_drm.c
+            src/drm/fg_structure_drm.c
+            src/drm/fg_window_drm.c
+            # font and joystick code are shared with X11
+            src/x11/fg_glutfont_definitions_x11.c
+            src/x11/fg_joystick_x11.c
+        )
+        ADD_DEFINITIONS(-DFREEGLUT_DRM_KMS)
 
 ELSE()
     # UNIX (Wayland)
@@ -455,6 +473,35 @@ IF(FREEGLUT_WAYLAND)
     LIST(APPEND LIBS ${wayland-client_LINK_LIBRARIES} ${wayland-cursor_LINK_LIBRARIES} ${wayland-egl_LINK_LIBRARIES} ${xkbcommon_LINK_LIBRARIES})
     INCLUDE_DIRECTORIES(${wayland-client_INCLUDE_DIRS} ${wayland-cursor_INCLUDE_DIRS} ${wayland-egl_INCLUDE_DIRS} ${xkbcommon_INCLUDE_DIRS})
   endif()
+ENDIF()
+
+# For DRM/KMS: compile with -DFREEGLUT_DRM_KMS and pull required libraries
+IF(FREEGLUT_DRM_KMS)
+  # Add the required libraries for DRM/KMS/GBM/EGL
+  ADD_DEFINITIONS(-DFREEGLUT_DRM_KMS)
+  
+  # Find required libraries using pkg-config
+  INCLUDE(FindPkgConfig)
+  PKG_CHECK_MODULES(LIBDRM REQUIRED libdrm)
+  PKG_CHECK_MODULES(GBM REQUIRED gbm)
+  
+  # Also need EGL for the DRM/KMS backend
+  if(NOT CMAKE_VERSION VERSION_LESS "3.10")
+    FIND_PACKAGE(OpenGL REQUIRED COMPONENTS EGL OpenGL)
+  else()
+    FIND_PACKAGE(OpenGL REQUIRED)
+    LIST(GET ${OPENGL_LIBRARIES} 0 _OPENGL_LIB)
+    GET_FILENAME_COMPONENT(_OPENGL_LIBDIR ${_OPENGL_LIB} DIRECTORY)
+    FIND_LIBRARY(EGL_LIBRARY EGL HINTS ${_OPENGL_LIBDIR})
+    LIST(APPEND LIBS ${EGL_LIBRARY})
+  endif()
+  
+  # Define static build dependencies
+  LIST(APPEND LIBS ${LIBDRM_LIBRARIES} ${GBM_LIBRARIES})
+  INCLUDE_DIRECTORIES(${LIBDRM_INCLUDE_DIRS} ${GBM_INCLUDE_DIRS})
+  
+  # For PC file generation
+  SET(PC_LIBS_PRIVATE "-ldrm -lgbm -lEGL -lGL -lm")
 ENDIF()
 
 # lib m for math, not needed on windows
@@ -787,6 +834,8 @@ ELSE()
     SET(PC_LIBS_PRIVATE "-lwayland-client -lwayland-cursor -lwayland-egl -lGL -lxkbcommon -lm")
   ELSEIF(OGC)
     SET(PC_LIBS_PRIVATE "-lm")
+  ELSEIF(FREEGLUT_DRM_KMS)
+    SET(PC_LIBS_PRIVATE "-ldrm -lgbm -lEGL -lGL -lm")
   ELSE()
     SET(PC_LIBS_PRIVATE "-lX11 -lXxf86vm -lXrandr -lGL -lm")
   ENDIF()

@@ -22,3 +22,12 @@
 /* warning and errors printed? */
 #cmakedefine FREEGLUT_PRINT_WARNINGS
 #cmakedefine FREEGLUT_PRINT_ERRORS
+
+/* Define to 1 if you're using DRM/KMS backend */
+#cmakedefine FREEGLUT_DRM_KMS 1
+
+#if defined(FREEGLUT_DRM_KMS)
+#   define TARGET_HOST_DRM_KMS 1
+#else
+#   define TARGET_HOST_DRM_KMS 0
+#endif
