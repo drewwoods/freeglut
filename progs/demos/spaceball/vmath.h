@@ -1,7 +1,8 @@
 #ifndef VMATH_H_
 #define VMATH_H_
 
-#if (__STDC_VERSION__ >= 199901) || defined(__GNUC__) || \
+#if (__STDC_VERSION__ >= 199901) || \
+        (defined(__GNUC__) && !defined(__STRICT_ANSI__)) || \
 		(defined(_MSC_VER) && _MSC_VER >= 1800)
 #define INLINE  inline
 #else
