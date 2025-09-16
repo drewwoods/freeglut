@@ -41,6 +41,9 @@ set(SO_MAJOR 3)		# increment on backwards incompatible API/ABI changes
 set(SO_MINOR 12)	# increment on backwards compatible API additions
 set(SO_REV 1)		# increment if only internal changes happened between releases
 
+# Optionally use C89 for compatibility with older systems
+OPTION(C89_COMPATIBILITY "Builds a C89 compatible version" OFF)
+
 # FREEGLUT_BUILD_SHARED_LIBS is already a standard CMake variable, but we need to
 # re-declare it here so it will show up in the GUI.
 # by default, we want to build both
@@ -583,6 +586,13 @@ IF(FREEGLUT_BUILD_STATIC_LIBS)
     ADD_LIBRARY(freeglut_static STATIC ${FREEGLUT_SRCS})
 ENDIF()
 
+IF(C89_COMPATIBILITY)
+    SET(CMAKE_C_STANDARD 90) # Cmake docs says use 90 for C89/C90
+    SET(CMAKE_C_STANDARD_REQUIRED ON)
+    SET(CMAKE_C_EXTENSIONS OFF)
+    # pedantic detects and warns of // stype comments
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic -Wno-strict-prototypes")
+ENDIF()
 
 SET(LIBNAME freeglut)
 IF(WIN32)
