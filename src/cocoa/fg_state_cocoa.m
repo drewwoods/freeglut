@@ -43,6 +43,9 @@ int fgPlatformGlutDeviceGet( GLenum eWhat )
 
 int fgPlatformGlutGet( GLenum eWhat )
 {
+    if ( !fgStructure.CurrentWindow )
+        return 0;
+
     NSWindow *win = (NSWindow *)fgStructure.CurrentWindow->Window.Handle;
 
     switch ( eWhat ) {
@@ -50,11 +53,10 @@ int fgPlatformGlutGet( GLenum eWhat )
     case GLUT_WINDOW_X:
     case GLUT_WINDOW_Y: {
         NSRect frame   = [win frame];
-        NSRect content = [win contentRectForFrameRect:frame];
         if ( eWhat == GLUT_WINDOW_X )
-            return content.origin.x;
+            return frame.origin.x;
         else
-            return fgDisplay.ScreenHeight - content.origin.y - content.size.height;
+            return fgDisplay.ScreenHeight - frame.origin.y - frame.size.height;
     }
 
     case GLUT_WINDOW_BORDER_WIDTH:
