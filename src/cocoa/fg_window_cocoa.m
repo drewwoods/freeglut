@@ -891,6 +891,16 @@ void fgPlatformOpenWindow( SFG_Window *window,
         window->State.Visible = GL_TRUE;
     }
 
+#define TRANSPARENT_FRAMEBUFFER
+#ifdef TRANSPARENT_FRAMEBUFFER
+    [nsWindow setOpaque:NO];
+    [nsWindow setHasShadow:NO];
+    [nsWindow setBackgroundColor:[NSColor clearColor]];
+
+    GLint opacity = 0;
+    [glContext setValues:&opacity forParameter:NSOpenGLContextParameterSurfaceOpacity];
+#endif
+
     //
     // 8. Store initial window size
     //
