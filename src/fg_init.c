@@ -819,3 +819,131 @@ void FGAPIENTRY glutInitWarningFunc( FGWarning callback )
         glutInitWarningFuncUcall( NULL, NULL );
     }
 }
+
+/* -- DISPLAY STRING TESTING ------------------------------------------------ */
+
+#ifdef FREEGLUT_TEST_DISPLAY_STRING
+
+#include <stdio.h>
+
+static const char* comparisonName(FGCriterionComparison comp)
+{
+    switch(comp) {
+        case FG_NONE: return "NONE";
+        case FG_EQ:   return "=";
+        case FG_NEQ:  return "!=";
+        case FG_LT:   return "<";
+        case FG_GT:   return ">";
+        case FG_LTE:  return "<=";
+        case FG_GTE:  return ">=";
+        case FG_MIN:  return "~";
+        default:      return "INVALID";
+    }
+}
+
+static void printCriterion(const char* name, FGCriterion crit)
+{
+    if (crit.comparison != FG_NONE) {
+        printf("  %-12s: %s %d\n", name, comparisonName(crit.comparison), crit.value);
+    }
+}
+
+static void dumpDisplayStringCriteria(const char* testName, const char* displayString)
+{
+    FGDisplayStringCriteria *c;
+
+    printf("\n=== Test: %s ===\n", testName);
+    printf("Input: \"%s\"\n", displayString);
+
+    glutInitDisplayString(displayString);
+    c = &fgState.DisplayStrCriteria;
+
+    printf("Parsed criteria:\n");
+    printCriterion("alpha", c->alpha);
+    printCriterion("red", c->red);
+    printCriterion("green", c->green);
+    printCriterion("blue", c->blue);
+    printCriterion("depth", c->depth);
+    printCriterion("stencil", c->stencil);
+    printCriterion("accumRed", c->accumRed);
+    printCriterion("accumGreen", c->accumGreen);
+    printCriterion("accumBlue", c->accumBlue);
+    printCriterion("accumAlpha", c->accumAlpha);
+    printCriterion("samples", c->samples);
+    printCriterion("auxBuffers", c->auxBuffers);
+    printCriterion("buffer", c->buffer);
+
+    if (c->num != 0) {
+        printf("  num         : %d\n", c->num);
+    }
+
+    printf("DisplayMode flags: 0x%08x\n", fgState.DisplayMode);
+}
+
+int main(int argc, char** argv)
+{
+    /* Initialize minimal state */
+    fgState.Initialised = GL_TRUE;
+
+    printf("Testing glutInitDisplayString comparator parsing\n");
+    printf("=================================================\n");
+
+    /* Test 1: Equal comparator */
+    dumpDisplayStringCriteria("Equal comparator",
+                              "depth=16 samples=4");
+
+    /* Test 2: Greater-than-or-equal comparator */
+    dumpDisplayStringCriteria("GTE comparator",
+                              "red>=8 green>=8 blue>=8 depth>=24");
+
+    /* Test 3: MIN (~) comparator */
+    dumpDisplayStringCriteria("MIN comparator",
+                              "stencil~8 auxbufs~2");
+
+    /* Test 4: Less-than comparator */
+    dumpDisplayStringCriteria("Less-than comparator",
+                              "samples<8");
+
+    /* Test 5: Greater-than comparator */
+    dumpDisplayStringCriteria("Greater-than comparator",
+                              "depth>16");
+
+    /* Test 6: Less-than-or-equal comparator */
+    dumpDisplayStringCriteria("LTE comparator",
+                              "samples<=4");
+
+    /* Test 7: Not-equal comparator */
+    dumpDisplayStringCriteria("Not-equal comparator",
+                              "depth!=16");
+
+    /* Test 8: Complex example from man page */
+    dumpDisplayStringCriteria("Man page example",
+                              "stencil~2 rgb double depth>=16 samples");
+
+    /* Test 9: Hex and octal values */
+    dumpDisplayStringCriteria("Hex/octal values",
+                              "depth=0x10 stencil=010");
+
+    /* Test 10: Default values without comparators */
+    dumpDisplayStringCriteria("Defaults",
+                              "alpha red green blue depth");
+
+    /* Test 11: rgb vs rgba */
+    dumpDisplayStringCriteria("RGB (no alpha)",
+                              "rgb");
+
+    dumpDisplayStringCriteria("RGBA (with alpha)",
+                              "rgba");
+
+    /* Test 12: Accumulation buffers */
+    dumpDisplayStringCriteria("Accumulation (acc)",
+                              "acc");
+
+    dumpDisplayStringCriteria("Accumulation (acca)",
+                              "acca");
+
+    printf("\n=== All tests complete ===\n");
+    return 0;
+}
+
+#endif /* FREEGLUT_TEST_DISPLAY_STRING */
