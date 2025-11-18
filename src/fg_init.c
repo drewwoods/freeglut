@@ -307,19 +307,6 @@ void fgDeinitialize( void )
     fgState.Initialised = GL_FALSE;
 }
 
-/* For backwards compatibility with old code */
-#define Comparison FGCriterionComparison
-#define Criterion FGCriterion
-#define NONE FG_NONE
-#define EQ FG_EQ
-#define NEQ FG_NEQ
-#define LTE FG_LTE
-#define GTE FG_GTE
-#define GT FG_GT
-#define LT FG_LT
-#define MIN FG_MIN
-#define INVALID FG_INVALID
-
 /* Comparison to distinguish invalid criteria during parsing */
 #define FG_INVALID ((FGCriterionComparison)(-1))
 
