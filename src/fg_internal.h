@@ -340,6 +340,36 @@ typedef enum
   GLUT_EXEC_STATE_STOP
 } fgExecutionState ;
 
+/* Display string criteria comparators */
+typedef enum {
+    FG_NONE, FG_EQ, FG_NEQ, FG_LTE, FG_GTE, FG_GT, FG_LT, FG_MIN
+} FGCriterionComparison;
+
+/* Display string criterion for a single capability */
+typedef struct {
+    FGCriterionComparison comparison;
+    int value;
+} FGCriterion;
+
+/* Display string criteria for all capabilities */
+typedef struct {
+    FGCriterion alpha;
+    FGCriterion red;
+    FGCriterion green;
+    FGCriterion blue;
+    FGCriterion depth;
+    FGCriterion stencil;
+    FGCriterion accumRed;
+    FGCriterion accumGreen;
+    FGCriterion accumBlue;
+    FGCriterion accumAlpha;
+    FGCriterion samples;
+    FGCriterion auxBuffers;
+    FGCriterion buffer;
+    int         num;                /* Which config to select (0=first/best) */
+    GLboolean   haveDisplayString;  /* TRUE if glutInitDisplayString was called */
+} FGDisplayStringCriteria;
+
 /* This structure holds different freeglut settings */
 typedef struct tagSFG_State SFG_State;
 struct tagSFG_State
@@ -410,6 +440,8 @@ struct tagSFG_State
     FGCBUserData     ErrorFuncData;        /* User defined error handler user data */
     FGWarningUC      WarningFunc;          /* User defined warning handler  */
     FGCBUserData     WarningFuncData;      /* User defined warning handler user data */
+
+    FGDisplayStringCriteria DisplayStrCriteria; /* Criteria from glutInitDisplayString */
 };
 
 /* The structure used by display initialization in fg_init.c */
