@@ -310,6 +310,15 @@ void fgDeinitialize( void )
 /* Comparison to distinguish invalid criteria during parsing */
 #define FG_INVALID ((FGCriterionComparison)(-1))
 
+/* Helper function to create a criterion (for MSVC compatibility) */
+static FGCriterion fghMakeCriterion(FGCriterionComparison comparison, int value)
+{
+    FGCriterion c;
+    c.comparison = comparison;
+    c.value = value;
+    return c;
+}
+
 /* Parse a display string token and return a Criterion struct.
  * Based on the original GLUT implementation:
  * https://github.com/markkilgard/glut/blob/master/lib/glut/glut_dstr.c
@@ -536,13 +545,13 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
         case 0:  /* "alpha":  Alpha color buffer precision in bits. Default >=1 */
             glut_state_flag |= GLUT_ALPHA;
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.alpha = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 1};
+            fgState.DisplayStrCriteria.alpha = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
             break;
 
         case 1:  /* "acca":  Red, green, blue, and alpha accumulation buffer precision. Default >=1 */
             glut_state_flag |= GLUT_ACCUM;
             criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = (FGCriterion){FG_GTE, 1};
+            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
             fgState.DisplayStrCriteria.accumRed = criteria;
             fgState.DisplayStrCriteria.accumGreen = criteria;
             fgState.DisplayStrCriteria.accumBlue = criteria;
@@ -552,21 +561,21 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
         case 2:  /* "acc":  Red, green, blue accumulation buffer with zero alpha. Default >=1 for RGB, ~0 for alpha */
             glut_state_flag |= GLUT_ACCUM;
             criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = (FGCriterion){FG_GTE, 1};
+            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
             fgState.DisplayStrCriteria.accumRed = criteria;
             fgState.DisplayStrCriteria.accumGreen = criteria;
             fgState.DisplayStrCriteria.accumBlue = criteria;
-            fgState.DisplayStrCriteria.accumAlpha = (FGCriterion){FG_MIN, 0};
+            fgState.DisplayStrCriteria.accumAlpha = fghMakeCriterion(FG_MIN, 0);
             break;
 
         case 3:  /* "blue":  Blue color buffer precision in bits. Default >=1 */
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.blue = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 1};
+            fgState.DisplayStrCriteria.blue = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
             break;
 
         case 4:  /* "buffer":  Number of bits in the color index color buffer. Default >=1 */
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.buffer = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 1};
+            fgState.DisplayStrCriteria.buffer = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
             break;
 
         case 5:  /* "conformant":  Boolean indicating conformance. Default =1 */
@@ -576,7 +585,7 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
         case 6:  /* "depth":  Depth buffer precision in bits. Default >=12 */
             glut_state_flag |= GLUT_DEPTH;
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.depth = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 12};
+            fgState.DisplayStrCriteria.depth = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 12);
             break;
 
         case 7:  /* "double":  Boolean indicating double buffering. Default =1 */
@@ -585,13 +594,13 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
 
         case 8:  /* "green":  Green color buffer precision in bits. Default >=1 */
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.green = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 1};
+            fgState.DisplayStrCriteria.green = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
             break;
 
         case 9:  /* "index":  Boolean if color model is color index. Default >=1 */
             glut_state_flag |= GLUT_INDEX;
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.buffer = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 1};
+            fgState.DisplayStrCriteria.buffer = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
             break;
 
         case 10:  /* "num":  Nth frame buffer configuration matching description */
@@ -603,13 +612,13 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
 
         case 11:  /* "red":  Red color buffer precision in bits. Default >=1 */
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.red = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 1};
+            fgState.DisplayStrCriteria.red = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
             break;
 
         case 12:  /* "rgba":  RGBA color buffer precision. Default >=1 for all channels */
             glut_state_flag |= GLUT_RGBA;
             criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = (FGCriterion){FG_GTE, 1};
+            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
             fgState.DisplayStrCriteria.red = criteria;
             fgState.DisplayStrCriteria.green = criteria;
             fgState.DisplayStrCriteria.blue = criteria;
@@ -619,19 +628,19 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
         case 13:  /* "rgb":  RGB color buffer with zero alpha. Default >=1 for RGB, ~0 for alpha */
             glut_state_flag |= GLUT_RGB;
             criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = (FGCriterion){FG_GTE, 1};
+            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
             fgState.DisplayStrCriteria.red = criteria;
             fgState.DisplayStrCriteria.green = criteria;
             fgState.DisplayStrCriteria.blue = criteria;
-            fgState.DisplayStrCriteria.alpha = (FGCriterion){FG_MIN, 0};
+            fgState.DisplayStrCriteria.alpha = fghMakeCriterion(FG_MIN, 0);
             break;
 
         case 14:  /* "luminance":  Red channel for luminance, zero green/blue. Default >=1 for red, =0 for green/blue */
             glut_state_flag |= GLUT_LUMINANCE;
             criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.red = (criteria.comparison != FG_INVALID) ? criteria : (FGCriterion){FG_GTE, 1};
-            fgState.DisplayStrCriteria.green = (FGCriterion){FG_EQ, 0};
-            fgState.DisplayStrCriteria.blue = (FGCriterion){FG_EQ, 0};
+            fgState.DisplayStrCriteria.red = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
+            fgState.DisplayStrCriteria.green = fghMakeCriterion(FG_EQ, 0);
+            fgState.DisplayStrCriteria.blue = fghMakeCriterion(FG_EQ, 0);
             break;
 
         case 15:  /* "stencil":  Stencil buffer bits. No default specified in man page */
@@ -659,7 +668,7 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
                     fgState.SampleNumber = (criteria.comparison == FG_NONE) ? 4 : criteria.value;
                 }
             } else {
-                fgState.DisplayStrCriteria.samples = (FGCriterion){FG_LTE, 4};
+                fgState.DisplayStrCriteria.samples = fghMakeCriterion(FG_LTE, 4);
                 fgState.SampleNumber = 4;
             }
             break;
@@ -706,7 +715,7 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
                     fgState.AuxiliaryBufferNumber = (criteria.comparison == FG_NONE) ? 1 : criteria.value;
                 }
             } else {
-                fgState.DisplayStrCriteria.auxBuffers = (FGCriterion){FG_NONE, 1};
+                fgState.DisplayStrCriteria.auxBuffers = fghMakeCriterion(FG_NONE, 1);
                 fgState.AuxiliaryBufferNumber = 1;
             }
             break;
