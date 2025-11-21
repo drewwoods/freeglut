@@ -51,8 +51,16 @@ static int fghWeightForCriterion( FGCriterion criterion, int minWeight, int maxW
     switch ( criterion.comparison ) {
     case FG_EQ:
         return criterion.value;
-    case FG_NEQ:
-        return maxWeight - criterion.value;
+    case FG_NEQ: {
+        int candidate;
+        candidate = maxWeight - criterion.value;
+        if ( candidate != criterion.value && candidate > minWeight )
+            return candidate;
+        else if ( maxWeight != criterion.value )
+            return maxWeight;
+        else
+            return minWeight;
+    }
     case FG_LT:
     case FG_LTE:
         return minWeight;
@@ -60,7 +68,9 @@ static int fghWeightForCriterion( FGCriterion criterion, int minWeight, int maxW
     case FG_GTE:
         return maxWeight;
     case FG_MIN:
-        return criterion.value;
+        return criterion.value > minWeight ? criterion.value : minWeight;
+    case FG_UNSPECIFIED: /* No specific requirement, set to max */
+        return maxWeight;
     case FG_NONE:
     default:
         return 0;
@@ -80,21 +90,31 @@ static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
     attrs[n++] = NSOpenGLPFAAccelerated;
     attrs[n++] = NSOpenGLPFAClosestPolicy;
 
-    if ( c->red.comparison != FG_NONE || c->green.comparison != FG_NONE || c->blue.comparison != FG_NONE ||
-         c->alpha.comparison != FG_NONE ) {
-
-        int redBits   = ( c->red.comparison != FG_NONE ) ? fghWeightForCriterion( c->red, 0, 8 ) : 8;
-        int greenBits = ( c->green.comparison != FG_NONE ) ? fghWeightForCriterion( c->green, 0, 8 ) : 8;
-        int blueBits  = ( c->blue.comparison != FG_NONE ) ? fghWeightForCriterion( c->blue, 0, 8 ) : 8;
-        int alphaBits = ( c->alpha.comparison != FG_NONE ) ? fghWeightForCriterion( c->alpha, 0, 8 ) : 8;
-
+    int colorBits = 0;
+    colorBits     = MAX( fghWeightForCriterion( c->red, 0, 16 ), colorBits );
+    colorBits     = MAX( fghWeightForCriterion( c->green, 0, 16 ), colorBits );
+    colorBits     = MAX( fghWeightForCriterion( c->blue, 0, 16 ), colorBits );
+    colorBits *= 3; /* 3 channels */
+    if ( colorBits > 0 ) {
         attrs[n++] = NSOpenGLPFAColorSize;
-        attrs[n++] = redBits + greenBits + blueBits;
+        attrs[n++] = colorBits;
+    }
 
-        if ( alphaBits > 0 ) {
-            attrs[n++] = NSOpenGLPFAAlphaSize;
-            attrs[n++] = alphaBits;
-        }
+    int alphaBits = fghWeightForCriterion( c->alpha, 0, 16 );
+    if ( alphaBits > 0 ) {
+        attrs[n++] = NSOpenGLPFAAlphaSize;
+        attrs[n++] = alphaBits;
+    }
+
+    int accumBits = 0;
+    accumBits     = MAX( fghWeightForCriterion( c->accumRed, 0, 32 ), accumBits );
+    accumBits     = MAX( fghWeightForCriterion( c->accumGreen, 0, 32 ), accumBits );
+    accumBits     = MAX( fghWeightForCriterion( c->accumBlue, 0, 32 ), accumBits );
+    accumBits     = MAX( fghWeightForCriterion( c->accumAlpha, 0, 32 ), accumBits );
+    accumBits *= 4; /* 4 channels */
+    if ( accumBits > 0 ) {
+        attrs[n++] = NSOpenGLPFAAccumSize;
+        attrs[n++] = accumBits;
     }
 
     if ( c->depth.comparison != FG_NONE ) {
@@ -107,21 +127,10 @@ static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
         attrs[n++] = fghWeightForCriterion( c->stencil, 0, 8 );
     }
 
-    if ( c->accumRed.comparison != FG_NONE || c->accumGreen.comparison != FG_NONE ||
-         c->accumBlue.comparison != FG_NONE || c->accumAlpha.comparison != FG_NONE ) {
-
-        int accumBits = 0;
-        accumBits     = MAX( fghWeightForCriterion( c->accumRed, 0, 16 ), accumBits );
-        accumBits     = MAX( fghWeightForCriterion( c->accumGreen, 0, 16 ), accumBits );
-        accumBits     = MAX( fghWeightForCriterion( c->accumBlue, 0, 16 ), accumBits );
-        accumBits     = MAX( fghWeightForCriterion( c->accumAlpha, 0, 16 ), accumBits );
-        attrs[n++]    = NSOpenGLPFAAccumSize;
-        attrs[n++]    = accumBits * 4; /* 4 channels */
-    }
-
     if ( c->auxBuffers.comparison != FG_NONE ) {
+        // TODO need to dynamically query max aux buffers supported as done in fgPlatformGlutGetModeValues()
         attrs[n++] = NSOpenGLPFAAuxBuffers;
-        attrs[n++] = fghWeightForCriterion( c->auxBuffers, 0, 4 );
+        attrs[n++] = fghWeightForCriterion( c->auxBuffers, 0, 2 );
     }
 
     if ( c->samples.comparison != FG_NONE ) {
@@ -751,44 +760,43 @@ void fgPlatformOpenWindow( SFG_Window *window,
     // 1. Define pixel format attributes
     //
 
-    NSOpenGLPixelFormatAttribute attrs[64];
+    NSOpenGLPixelFormatAttribute attrs[128];
     int                          attrIndex = 0;
+
+    // build attributes from DisplayMode flags
+    attrs[attrIndex++] = NSOpenGLPFAAccelerated;
+    attrs[attrIndex++] = NSOpenGLPFAColorSize;
+    attrs[attrIndex++] = 24; // 8 bits per RGB channel
+    attrs[attrIndex++] = NSOpenGLPFAAlphaSize;
+    attrs[attrIndex++] = 8;
+
+    if ( fgState.DisplayMode & GLUT_DEPTH ) {
+        attrs[attrIndex++] = NSOpenGLPFADepthSize;
+        attrs[attrIndex++] = 24;
+    }
+    if ( fgState.DisplayMode & GLUT_STENCIL ) {
+        attrs[attrIndex++] = NSOpenGLPFAStencilSize;
+        attrs[attrIndex++] = 8;
+    }
+    if ( fgState.DisplayMode & GLUT_ACCUM ) {
+        attrs[attrIndex++] = NSOpenGLPFAAccumSize;
+        attrs[attrIndex++] = 32;
+    }
+    if ( fgState.DisplayMode & GLUT_AUX ) {
+        attrs[attrIndex++] = NSOpenGLPFAAuxBuffers;
+        attrs[attrIndex++] = fghNumberOfAuxBuffersRequested( );
+    }
+    if ( fgState.DisplayMode & GLUT_MULTISAMPLE ) {
+        attrs[attrIndex++] = NSOpenGLPFAMultisample;
+        attrs[attrIndex++] = NSOpenGLPFASampleBuffers;
+        attrs[attrIndex++] = 1;
+        attrs[attrIndex++] = NSOpenGLPFASamples;
+        attrs[attrIndex++] = fgState.SampleNumber;
+    }
 
     // If glutInitDisplayString was used, build attributes from criteria
     if ( fgState.DisplayStrCriteria.haveDisplayString ) {
         attrIndex = fghBuildAttrsFromCriteria( attrs );
-    }
-    else {
-        // build attributes from DisplayMode flags
-        attrs[attrIndex++] = NSOpenGLPFAAccelerated;
-        attrs[attrIndex++] = NSOpenGLPFAColorSize;
-        attrs[attrIndex++] = 24; // 8 bits per RGB channel
-        attrs[attrIndex++] = NSOpenGLPFAAlphaSize;
-        attrs[attrIndex++] = 8;
-
-        if ( fgState.DisplayMode & GLUT_DEPTH ) {
-            attrs[attrIndex++] = NSOpenGLPFADepthSize;
-            attrs[attrIndex++] = 24;
-        }
-        if ( fgState.DisplayMode & GLUT_STENCIL ) {
-            attrs[attrIndex++] = NSOpenGLPFAStencilSize;
-            attrs[attrIndex++] = 8;
-        }
-        if ( fgState.DisplayMode & GLUT_ACCUM ) {
-            attrs[attrIndex++] = NSOpenGLPFAAccumSize;
-            attrs[attrIndex++] = 32;
-        }
-        if ( fgState.DisplayMode & GLUT_AUX ) {
-            attrs[attrIndex++] = NSOpenGLPFAAuxBuffers;
-            attrs[attrIndex++] = fghNumberOfAuxBuffersRequested( );
-        }
-        if ( fgState.DisplayMode & GLUT_MULTISAMPLE ) {
-            attrs[attrIndex++] = NSOpenGLPFAMultisample;
-            attrs[attrIndex++] = NSOpenGLPFASampleBuffers;
-            attrs[attrIndex++] = 1;
-            attrs[attrIndex++] = NSOpenGLPFASamples;
-            attrs[attrIndex++] = fgState.SampleNumber;
-        }
     }
 
     // Double buffering, stereo and OpenGL profile attributes
