@@ -342,7 +342,15 @@ typedef enum
 
 /* Display string criteria comparators */
 typedef enum {
-    FG_NONE, FG_EQ, FG_NEQ, FG_LTE, FG_GTE, FG_GT, FG_LT, FG_MIN
+    FG_NONE, 
+    FG_EQ,          /* cap=val */
+    FG_NEQ,         /* cap!=val */
+    FG_LTE,         /* cap<=val */
+    FG_GTE,         /* cap>=val */
+    FG_GT,          /* cap>val */
+    FG_LT,          /* cap<val */
+    FG_MIN,         /* cap~val */
+    FG_UNSPECIFIED  /* cap */
 } FGCriterionComparison;
 
 /* Display string criterion for a single capability */
