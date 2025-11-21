@@ -392,6 +392,10 @@ static FGCriterion parseCriteria(const char *word)
             /* Comparator present but no value */
             c.comparison = FG_INVALID;
         }
+    } else {
+        /* No comparator found */
+        c.comparison = FG_UNSPECIFIED;
+        c.value = 0;
     }
 
     return c;
