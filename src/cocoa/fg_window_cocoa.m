@@ -26,6 +26,8 @@
 void fghOnReshapeNotify( SFG_Window *window, int width, int height, GLboolean forceNotify );
 void fghOnPositionNotify( SFG_Window *window, int x, int y, GLboolean forceNotify );
 
+void fgPlatformShowWindow( SFG_Window *window );
+
 /* CVDisplayLink callback function */
 CVReturn fgDisplayLinkCallback( CVDisplayLinkRef displayLink,
     const CVTimeStamp                           *now,
@@ -873,14 +875,11 @@ void fgPlatformOpenWindow( SFG_Window *window,
     //
 
     if ( !window->IsMenu ) {
-        [NSApp activateIgnoringOtherApps:YES];    // Ensure window is focused
-        [nsWindow makeKeyAndOrderFront:nil];      // Brings window to front
-        [nsWindow makeFirstResponder:openGLView]; // Ensure view receives events
-        window->State.Visible = GL_TRUE;
+        fgPlatformShowWindow( window );
     }
 
     //
-    // 8. Store initial window size
+    // 8. Store initial window size (accumulation buffer resize dance applied)
     //
 
     // Get the actual framebuffer dimensions
@@ -942,13 +941,14 @@ void fgPlatformShowWindow( SFG_Window *window )
 {
     AUTORELEASE_POOL;
 
-    NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
+    NSWindow     *nsWindow   = (NSWindow *)window->Window.Handle;
+    fgOpenGLView *openGLView = (fgOpenGLView *)nsWindow.contentView;
 
     if ( [nsWindow isMiniaturized] ) {
         [nsWindow deminiaturize:nil];
     }
-    [NSApp activateIgnoringOtherApps:YES]; // Ensure window is focused
-    [nsWindow makeKeyAndOrderFront:nil];   // Brings window to front
+    [nsWindow makeKeyAndOrderFront:nil];      // Brings window to front
+    [nsWindow makeFirstResponder:openGLView]; // Ensure view receives events
     window->State.Visible = GL_TRUE;
 }
 
