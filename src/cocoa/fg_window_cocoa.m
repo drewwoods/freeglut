@@ -26,6 +26,8 @@
 void fghOnReshapeNotify( SFG_Window *window, int width, int height, GLboolean forceNotify );
 void fghOnPositionNotify( SFG_Window *window, int x, int y, GLboolean forceNotify );
 
+void fghPlatformGetCursorPos( const SFG_Window *window, GLboolean client, SFG_XYUse *mouse_pos );
+
 /* CVDisplayLink callback function */
 CVReturn fgDisplayLinkCallback( CVDisplayLinkRef displayLink,
     const CVTimeStamp                           *now,
@@ -254,10 +256,13 @@ BOOL shouldQuit = NO;
         mouseLoc = [event locationInWindow];
     }
 
-    // Convert the point to view coordinates
+    // Convert the point to view coordinates (logical points)
     mouseLoc = [self convertPoint:mouseLoc fromView:nil];
-    int x    = (int)mouseLoc.x;
-    int y    = (int)( self.bounds.size.height - mouseLoc.y ); // Flip y for OpenGL
+
+    // Convert to backing coordinates (pixels) for consistency with window width/height
+    NSPoint backingLoc = [self convertPointToBacking:mouseLoc];
+    int     x          = (int)backingLoc.x;
+    int     y = (int)( [self convertRectToBacking:self.bounds].size.height - backingLoc.y ); // Flip y for OpenGL
 
     return NSMakePoint( x, y );
 }
@@ -337,6 +342,10 @@ BOOL shouldQuit = NO;
 
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:NO];
 
+    // Update window state mouse position for menu activation check
+    self.fgWindow->State.MouseX = (int)mouseLoc.x;
+    self.fgWindow->State.MouseY = (int)mouseLoc.y;
+
     if ( fgCheckActiveMenu( self.fgWindow, button, state == GLUT_DOWN, mouseLoc.x, mouseLoc.y ) ) {
         return;
     }
@@ -355,14 +364,16 @@ BOOL shouldQuit = NO;
 
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:NO];
 
+    // Update window state mouse position
+    self.fgWindow->State.MouseX = (int)mouseLoc.x;
+    self.fgWindow->State.MouseY = (int)mouseLoc.y;
+
     if ( self.fgWindow->ActiveMenu ) {
-        // SFG_XYUse mouse_pos;
-        // fghPlatformGetCursorPos( NULL, GL_FALSE, &mouse_pos );
+        SFG_XYUse mouse_pos;
+        fghPlatformGetCursorPos( NULL, GL_FALSE, &mouse_pos );
 
-        NSLog( @"Active menu mouse move at (%f, %f)", mouseLoc.x, mouseLoc.y );
-
-        self.fgWindow->ActiveMenu->Window->State.MouseX = mouseLoc.x - self.fgWindow->ActiveMenu->X;
-        self.fgWindow->ActiveMenu->Window->State.MouseY = mouseLoc.y - self.fgWindow->ActiveMenu->Y;
+        self.fgWindow->ActiveMenu->Window->State.MouseX = mouse_pos.X - self.fgWindow->ActiveMenu->X;
+        self.fgWindow->ActiveMenu->Window->State.MouseY = mouse_pos.Y - self.fgWindow->ActiveMenu->Y;
 
         fgUpdateMenuHighlight( self.fgWindow->ActiveMenu );
         return;
@@ -382,11 +393,16 @@ BOOL shouldQuit = NO;
 
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:NO];
 
-    if ( self.fgWindow->ActiveMenu ) {
-        NSLog( @"Active menu mouse move at (%f, %f)", mouseLoc.x, mouseLoc.y );
+    // Update window state mouse position
+    self.fgWindow->State.MouseX = (int)mouseLoc.x;
+    self.fgWindow->State.MouseY = (int)mouseLoc.y;
 
-        self.fgWindow->ActiveMenu->Window->State.MouseX = mouseLoc.x - self.fgWindow->ActiveMenu->X;
-        self.fgWindow->ActiveMenu->Window->State.MouseY = mouseLoc.y - self.fgWindow->ActiveMenu->Y;
+    if ( self.fgWindow->ActiveMenu ) {
+        SFG_XYUse mouse_pos;
+        fghPlatformGetCursorPos( NULL, GL_FALSE, &mouse_pos );
+
+        self.fgWindow->ActiveMenu->Window->State.MouseX = mouse_pos.X - self.fgWindow->ActiveMenu->X;
+        self.fgWindow->ActiveMenu->Window->State.MouseY = mouse_pos.Y - self.fgWindow->ActiveMenu->Y;
 
         fgUpdateMenuHighlight( self.fgWindow->ActiveMenu );
         return;
@@ -422,6 +438,10 @@ BOOL shouldQuit = NO;
 
     // Get mouse coordinates in the view
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:NO];
+
+    // Update window state mouse position
+    self.fgWindow->State.MouseX = (int)mouseLoc.x;
+    self.fgWindow->State.MouseY = (int)mouseLoc.y;
 
     double FGUNUSED deltaX = [event scrollingDeltaX];
     double          deltaY = [event scrollingDeltaY];
@@ -525,6 +545,10 @@ BOOL shouldQuit = NO;
     }
 
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:YES];
+
+    // Update window state mouse position
+    self.fgWindow->State.MouseX = (int)mouseLoc.x;
+    self.fgWindow->State.MouseY = (int)mouseLoc.y;
 
     if ( state == GLUT_DOWN ) {
         [self.pressedSpecialKeys addObject:@( specialKey )];
@@ -931,6 +955,10 @@ void fgPlatformOpenWindow( SFG_Window *window,
     NSRect backingBounds                    = [openGLView convertRectToBacking:[openGLView bounds]];
     window->State.pWState.FrameBufferWidth  = (int)backingBounds.size.width;
     window->State.pWState.FrameBufferHeight = (int)backingBounds.size.height;
+
+    // Also set the standard freeglut window state width and height
+    window->State.Width  = window->State.pWState.FrameBufferWidth;
+    window->State.Height = window->State.pWState.FrameBufferHeight;
 
     //
     // 9. Setup CVLinkDisplay for VSync
