@@ -20,6 +20,8 @@
 #include <GL/freeglut.h>
 #include "../fg_internal.h"
 
+#import <Cocoa/Cocoa.h>
+
 void fgPlatformSetCursor( SFG_Window *window, int cursorID )
 {
     TODO_IMPL;
@@ -32,5 +34,26 @@ void fgPlatformWarpPointer( int x, int y )
 
 void fghPlatformGetCursorPos( const SFG_Window *window, GLboolean client, SFG_XYUse *mouse_pos )
 {
-    TODO_IMPL;
+    AUTORELEASE_POOL;
+
+    NSPoint screenLoc   = [NSEvent mouseLocation]; // Bottom-left origin
+    NSRect  screenFrame = [[[NSScreen screens] objectAtIndex:0] frame];
+
+    int x = (int)screenLoc.x;
+    int y = (int)( screenFrame.size.height - screenLoc.y ); // Top-left origin
+
+    if ( client && window && window->Window.Handle ) {
+
+        NSWindow *nsWindow  = window->Window.Handle;
+        NSPoint   windowLoc = [nsWindow convertPointFromScreen:screenLoc];
+        NSView   *view      = [nsWindow contentView];
+        NSPoint   viewLoc   = [view convertPoint:windowLoc fromView:nil];
+
+        x = (int)viewLoc.x;
+        y = (int)( view.bounds.size.height - viewLoc.y );
+    }
+
+    mouse_pos->X   = x;
+    mouse_pos->Y   = y;
+    mouse_pos->Use = GL_TRUE;
 }
