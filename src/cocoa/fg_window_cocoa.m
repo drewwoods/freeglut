@@ -336,6 +336,11 @@ BOOL shouldQuit = NO;
     }
 
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:NO];
+
+    if ( fgCheckActiveMenu( self.fgWindow, button, state == GLUT_DOWN, mouseLoc.x, mouseLoc.y ) ) {
+        return;
+    }
+
     INVOKE_WCB( *self.fgWindow, Mouse, ( button, state, mouseLoc.x, mouseLoc.y ) );
 }
 
@@ -349,6 +354,20 @@ BOOL shouldQuit = NO;
     }
 
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:NO];
+
+    if ( self.fgWindow->ActiveMenu ) {
+        // SFG_XYUse mouse_pos;
+        // fghPlatformGetCursorPos( NULL, GL_FALSE, &mouse_pos );
+
+        NSLog( @"Active menu mouse move at (%f, %f)", mouseLoc.x, mouseLoc.y );
+
+        self.fgWindow->ActiveMenu->Window->State.MouseX = mouseLoc.x - self.fgWindow->ActiveMenu->X;
+        self.fgWindow->ActiveMenu->Window->State.MouseY = mouseLoc.y - self.fgWindow->ActiveMenu->Y;
+
+        fgUpdateMenuHighlight( self.fgWindow->ActiveMenu );
+        return;
+    }
+
     INVOKE_WCB( *self.fgWindow, Passive, ( mouseLoc.x, mouseLoc.y ) );
 }
 
@@ -362,6 +381,17 @@ BOOL shouldQuit = NO;
     }
 
     NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:NO];
+
+    if ( self.fgWindow->ActiveMenu ) {
+        NSLog( @"Active menu mouse move at (%f, %f)", mouseLoc.x, mouseLoc.y );
+
+        self.fgWindow->ActiveMenu->Window->State.MouseX = mouseLoc.x - self.fgWindow->ActiveMenu->X;
+        self.fgWindow->ActiveMenu->Window->State.MouseY = mouseLoc.y - self.fgWindow->ActiveMenu->Y;
+
+        fgUpdateMenuHighlight( self.fgWindow->ActiveMenu );
+        return;
+    }
+
     INVOKE_WCB( *self.fgWindow, Motion, ( mouseLoc.x, mouseLoc.y ) );
 }
 
@@ -891,6 +921,8 @@ void fgPlatformOpenWindow( SFG_Window *window,
         window->State.Visible = GL_TRUE;
     }
 
+    NSLog( @"This is a menu window: %d", window->IsMenu );
+
     //
     // 8. Store initial window size
     //
@@ -975,8 +1007,15 @@ void fgPlatformShowWindow( SFG_Window *window )
     if ( [nsWindow isMiniaturized] ) {
         [nsWindow deminiaturize:nil];
     }
-    [NSApp activateIgnoringOtherApps:YES]; // Ensure window is focused
-    [nsWindow makeKeyAndOrderFront:nil];   // Brings window to front
+
+    if ( window->IsMenu ) {
+        NSLog( @"Showing menu window" );
+        [nsWindow orderFront:nil];
+    }
+    else {
+        [NSApp activateIgnoringOtherApps:YES]; // Ensure window is focused
+        [nsWindow makeKeyAndOrderFront:nil];   // Brings window to front
+    }
     window->State.Visible = GL_TRUE;
 }
 
