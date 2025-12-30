@@ -95,6 +95,7 @@ void update_window_geometry( void )
     static int offset_x, offset_y;
 
     int win = glutGetWindow( );
+    win     = win >= NUM_WINDOWS ? NUM_WINDOWS - 1 : win;
 
     assert( win < NUM_WINDOWS );
 
@@ -137,6 +138,7 @@ void move_window( int value )
     static int y_dir[NUM_WINDOWS];
 
     int win           = glutGetWindow( );
+    win               = win >= NUM_WINDOWS ? NUM_WINDOWS - 1 : win;
     struct geom *this = &winGeom[win];
     struct geom *other;
 
@@ -196,6 +198,7 @@ void display( void )
 
     int i;
     int win = glutGetWindow( );
+    win     = win >= NUM_WINDOWS ? NUM_WINDOWS - 1 : win;
 
     char *s;
     char  title[256];
@@ -256,14 +259,12 @@ void display( void )
         break;
 
     case 5: /* Color cycle background */
+    default:
         a = sin( phase * 2 ) * 0.5f + 0.5f;
         b = sin( phase / 2 ) * 0.5f + 0.5f;
         c = sin( phase / 3 ) * 0.5f + 0.5f;
         glClearColor( a, b, c, 1.0f );
         break;
-
-    default:
-        assert( !"Unknown window" );
     }
 
     glutSetWindowTitle( title );
@@ -300,7 +301,8 @@ void timer( int a )
             minimized = 1;
             /* Move cached geometry off-screen to prevent collisions with moving windows */
             winGeom[win2].x = -1000;
-        } else if ( MID( runtime, ICONIFY_TRIGGER_MS, 2 * ICONIFY_TRIGGER_MS ) != runtime && minimized ) {
+        }
+        else if ( MID( runtime, ICONIFY_TRIGGER_MS, 2 * ICONIFY_TRIGGER_MS ) != runtime && minimized ) {
             glutSetWindow( win2 );
             glutShowWindow( );
             minimized = 0;
@@ -341,16 +343,17 @@ void timer( int a )
 
 void global_info( void )
 {
-    int size = 0, i = 0;
+    int  size = 0, i = 0;
     int *array = NULL;
 
 #define PRINT_ARRAY( name, arr, sz )                        \
     printf( "  " name ":%s", sz ? "" : " Not Supported " ); \
-    for ( i = 0; i < sz; i++ ) printf( " %d,", arr[i] );    \
+    for ( i = 0; i < sz; i++ )                              \
+        printf( " %d,", arr[i] );                           \
     printf( "\b \n" );
 
     printf( "------------------- Global GLUT Info ------------------\n" );
-    printf( "glutGet():\n");
+    printf( "glutGet():\n" );
     printf( "  GLUT_DISPLAY_MODE_POSSIBLE: %d\n", glutGet( GLUT_DISPLAY_MODE_POSSIBLE ) );
     printf( "  GLUT_INIT_DISPLAY_MODE: %d\n", glutGet( GLUT_INIT_DISPLAY_MODE ) );
     printf( "  GLUT_INIT_WINDOW_X: %d\n", glutGet( GLUT_INIT_WINDOW_X ) );
@@ -362,15 +365,15 @@ void global_info( void )
     printf( "  GLUT_SCREEN_WIDTH_MM: %d\n", glutGet( GLUT_SCREEN_WIDTH_MM ) );
     printf( "  GLUT_SCREEN_HEIGHT_MM: %d\n", glutGet( GLUT_SCREEN_HEIGHT_MM ) );
 #ifdef FREEGLUT
-    printf( "glutGetModeValues():\n");
+    printf( "glutGetModeValues():\n" );
 
-    array = glutGetModeValues(GLUT_AUX, &size);
-    PRINT_ARRAY("GLUT_AUX", array, size);
-    free(array);
+    array = glutGetModeValues( GLUT_AUX, &size );
+    PRINT_ARRAY( "GLUT_AUX", array, size );
+    free( array );
 
-    array = glutGetModeValues(GLUT_MULTISAMPLE, &size);
-    PRINT_ARRAY("GLUT_MULTISAMPLE", array, size);
-    free(array);
+    array = glutGetModeValues( GLUT_MULTISAMPLE, &size );
+    PRINT_ARRAY( "GLUT_MULTISAMPLE", array, size );
+    free( array );
 #endif
 }
 
@@ -394,9 +397,10 @@ int create_window( int id )
 
     sprintf( title, "Window %d", id );
 
-    win = glutCreateWindow( title );
-    glutPositionWindow( winGeom[win].x, winGeom[win].y );
-    glutReshapeWindow( winGeom[win].w, winGeom[win].h );
+    win           = glutCreateWindow( title );
+    int clamp_win = win >= NUM_WINDOWS ? NUM_WINDOWS - 1 : win;
+    glutPositionWindow( winGeom[clamp_win].x, winGeom[clamp_win].y );
+    glutReshapeWindow( winGeom[clamp_win].w, winGeom[clamp_win].h );
     glutDisplayFunc( display ); /* display function is per window*/
     window_info( );
 
@@ -406,6 +410,23 @@ int create_window( int id )
     glEnable( GL_LINE_SMOOTH );
 
     return win;
+}
+
+void keyboard( unsigned char key, int x, int y )
+{
+    switch ( key ) {
+    case 'd':
+        if ( win5 ) {
+            glutDestroyWindow( win5 );
+            win5 = 0;
+        }
+        break;
+    case 'c':
+        if ( !win5 ) {
+            win5 = create_window( 5 );
+        }
+        break;
+    }
 }
 
 int main( int argc, char **argv )
@@ -422,6 +443,7 @@ int main( int argc, char **argv )
 
     win1 = create_window( 1 );
     glLineWidth( 3.0f ); /* only applies to window 1  */
+    glutKeyboardFunc( keyboard );
 
     win2 = create_window( 2 );
     glClearColor( 0.1, 0.3, 0.3, 1.0f );
@@ -435,6 +457,7 @@ int main( int argc, char **argv )
     glMatrixMode( GL_MODELVIEW );
 
     win5 = create_window( 5 );
+    glutKeyboardFunc( keyboard );
 
     /*
      * --- Start event loop ---
