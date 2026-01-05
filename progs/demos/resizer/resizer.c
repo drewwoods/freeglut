@@ -1,6 +1,7 @@
 #include <stdio.h>
 
-#include <GL/freeglut.h>
+//#include <GL/freeglut.h>
+#include <GL/glut.h>
 
 int nWindow, nChildWindow = -1;
 int nLoopMain = 0;
@@ -45,7 +46,7 @@ void SampleKeyboard( unsigned char cChar, int nMouseX, int nMouseY )
     switch (cChar)
     {
     case 27:
-        glutLeaveMainLoop();
+        // glutLeaveMainLoop();
 
         break;
 
@@ -53,7 +54,7 @@ void SampleKeyboard( unsigned char cChar, int nMouseX, int nMouseY )
     case 'f':
     case 'F':
         printf("main window toggle fullscreen\n");
-        glutFullScreenToggle();
+        // glutFullScreenToggle();
 
         break;
 
@@ -158,7 +159,7 @@ void SampleKeyboard( unsigned char cChar, int nMouseX, int nMouseY )
             glutKeyboardFunc( SampleKeyboard );
             glutDisplayFunc( Redisplay );
             glutReshapeFunc( Reshape );
-            glutPositionFunc( Position );
+            // glutPositionFunc( Position );
             glutWindowStatusFunc( WindowStatus );
         }
         else
@@ -309,8 +310,8 @@ void Redisplay(void)
     {
         glColor3f(1, 1, 0);
         glGetIntegerv(GL_VIEWPORT, viewport);
-        glRasterPos2i(2, -glutBitmapHeight(GLUT_BITMAP_9_BY_15)+3+viewport[3]);
-        glutBitmapString(GLUT_BITMAP_9_BY_15, (unsigned char*)"press f/r/m/d/c/i/h/p");
+        // glRasterPos2i(2, -glutBitmapHeight(GLUT_BITMAP_9_BY_15)+3+viewport[3]);
+        // glutBitmapString(GLUT_BITMAP_9_BY_15, (unsigned char*)"press f/r/m/d/c/i/h/p");
     }
 
     glutSwapBuffers();
@@ -328,8 +329,8 @@ void Timer(int unused)
     y       = glutGet(GLUT_WINDOW_Y);
     width   = glutGet(GLUT_WINDOW_WIDTH);
     height  = glutGet(GLUT_WINDOW_HEIGHT);
-    border  = glutGet(GLUT_WINDOW_BORDER_WIDTH);
-    caption = glutGet(GLUT_WINDOW_HEADER_HEIGHT);
+    // border  = glutGet(GLUT_WINDOW_BORDER_WIDTH);
+    // caption = glutGet(GLUT_WINDOW_HEADER_HEIGHT);
     /* returned position is top-left of client area, to get top-left of
      * of window you'll need to add the size of the border and caption
      * of the current window (can be 0).
@@ -362,11 +363,11 @@ int main(int argc, char* argv[])
     int border, caption;
     glutInit( &argc, argv );
     glutInitDisplayMode( GLUT_RGB | GLUT_DOUBLE /*| GLUT_BORDERLESS*/); /* do try as well with GLUT_BORDERLESS and GLUT_CAPTIONLESS */
-    glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE,GLUT_ACTION_GLUTMAINLOOP_RETURNS);
+    // glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE,GLUT_ACTION_GLUTMAINLOOP_RETURNS);
     
     /* Get border and caption size of default window style */
-    border  = glutGet(GLUT_WINDOW_BORDER_WIDTH);
-    caption = glutGet(GLUT_WINDOW_HEADER_HEIGHT);
+    // border  = glutGet(GLUT_WINDOW_BORDER_WIDTH);
+    // caption = glutGet(GLUT_WINDOW_HEADER_HEIGHT);
     printf("default window style border: %dpx, caption: %dpx\n",border,caption);
 
     /* NB: The window position you request is the outer top-left of the
@@ -383,7 +384,7 @@ int main(int argc, char* argv[])
     glutKeyboardFunc( SampleKeyboard );
     glutDisplayFunc( Redisplay );
     glutReshapeFunc( Reshape );
-    glutPositionFunc( Position );
+    // glutPositionFunc( Position );
     glutWindowStatusFunc( WindowStatus );
 
     glutTimerFunc(300, Timer, 0);
