@@ -49,6 +49,8 @@ BOOL shouldQuit = NO;
 // Special and standard key codes overlap, so we need to track them separately.
 @property ( strong ) NSMutableSet *pressedStandardKeys;
 @property ( strong ) NSMutableSet *pressedSpecialKeys;
+@property BOOL                     hasFirstResize;
+
 - (void)releaseAllKeys;
 @end
 
@@ -116,11 +118,19 @@ BOOL shouldQuit = NO;
 {
     AUTORELEASE_POOL;
 
-    NSWindow     *window = notification.object;
-    fgOpenGLView *view   = (fgOpenGLView *)window.contentView;
+    NSWindow *window = notification.object;
 
-    // Release all keys and modifiers since we are going to lose focus
-    [view releaseAllKeys];
+    // Release all keys and modifiers since we are going to lose focus.
+    // For subwindows, the key events may be owned by a subview rather than the contentView.
+    NSResponder *firstResponder = [window firstResponder];
+    if ( [firstResponder isKindOfClass:[fgOpenGLView class]] ) {
+        [(fgOpenGLView *)firstResponder releaseAllKeys];
+        return;
+    }
+
+    if ( [window.contentView isKindOfClass:[fgOpenGLView class]] ) {
+        [(fgOpenGLView *)window.contentView releaseAllKeys];
+    }
 }
 
 @end
@@ -636,7 +646,6 @@ BOOL shouldQuit = NO;
 - (void)reshape
 {
     AUTORELEASE_POOL;
-
     [super reshape];
 
     if ( !self.fgWindow ) {
@@ -646,9 +655,7 @@ BOOL shouldQuit = NO;
     /* Sync the context with the new drawable size. */
     [(NSOpenGLContext *)self.fgWindow->Window.Context update];
 
-    NSWindow *window        = self.fgWindow->Window.Handle;
-    NSRect    frame         = [window contentRectForFrameRect:[window frame]];
-    NSRect    backingBounds = [self convertRectToBacking:[self bounds]];
+    NSRect backingBounds = [self convertRectToBacking:[self bounds]];
 
     /* Update the window size */
     SFG_PlatformWindowState *pWState = &self.fgWindow->State.pWState;
@@ -668,8 +675,26 @@ BOOL shouldQuit = NO;
         glClear( GL_ACCUM_BUFFER_BIT );
 
     /* Update state and call callback, if there was a change */
-    fghOnPositionNotify( self.fgWindow, frame.origin.x, frame.origin.y, GL_FALSE );
-    fghOnReshapeNotify( self.fgWindow, pWState->FrameBufferWidth, pWState->FrameBufferHeight, GL_FALSE );
+    if ( self.fgWindow->Parent ) {
+        NSView *parentView = [self superview];
+        NSRect  frame      = [self frame];
+        CGFloat parentH    = parentView ? parentView.bounds.size.height : 0;
+
+        int px = (int)frame.origin.x;
+        int py = (int)( parentH - frame.origin.y - frame.size.height );
+
+        fghOnPositionNotify( self.fgWindow, px, py, GL_FALSE );
+    }
+    else {
+        NSWindow *window = (NSWindow *)self.fgWindow->Window.Handle;
+        NSRect    frame  = [window contentRectForFrameRect:[window frame]];
+        int       px     = (int)frame.origin.x;
+        int       py     = (int)( fgDisplay.ScreenHeight - frame.origin.y - frame.size.height );
+        fghOnPositionNotify( self.fgWindow, px, py, GL_FALSE );
+    }
+
+    fghOnReshapeNotify( self.fgWindow, pWState->FrameBufferWidth, pWState->FrameBufferHeight, self.hasFirstResize );
+    self.hasFirstResize = YES;
 }
 
 @end
@@ -685,7 +710,28 @@ void fgPlatformReshapeWindow( SFG_Window *window, int width, int height )
         fgError( "Invalid window passed to fgPlatformReshapeWindow" );
     }
 
-    // Resize the window to the specified dimensions
+    if ( window->Parent ) {
+        fgOpenGLView *view = (fgOpenGLView *)window->Window.pContext.View;
+        if ( !view ) {
+            fgError( "Invalid subwindow view in fgPlatformReshapeWindow" );
+        }
+
+        NSRect  frame      = [view frame];
+        NSView *parentView = [view superview];
+        CGFloat parentH    = parentView ? parentView.bounds.size.height : 0;
+        int     glutY      = ( parentH > 0 ) ? (int)( parentH - frame.origin.y - frame.size.height ) : 0;
+
+        frame.size = NSMakeSize( width, height );
+        if ( parentH > 0 ) {
+            frame.origin.y = parentH - glutY - frame.size.height;
+        }
+
+        [view setFrame:frame];
+        [view reshape];
+        return;
+    }
+
+    // Top-level window
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
     if ( !nsWindow ) {
         fgError( "Invalid NSWindow handle in fgPlatformReshapeWindow" );
@@ -693,12 +739,15 @@ void fgPlatformReshapeWindow( SFG_Window *window, int width, int height )
 
     [nsWindow setContentSize:NSMakeSize( width, height )];
 
-    fgOpenGLView *openGLView = (fgOpenGLView *)nsWindow.contentView;
-    if ( !openGLView ) {
+    fgOpenGLView *view = (fgOpenGLView *)window->Window.pContext.View;
+    if ( !view ) {
+        view = (fgOpenGLView *)nsWindow.contentView;
+    }
+    if ( !view ) {
         fgError( "Invalid OpenGLView in fgPlatformReshapeWindow" );
     }
 
-    [openGLView reshape];
+    [view reshape];
 }
 
 BOOL isValidOpenGLContext( int MajorVersion, int MinorVersion, int ContextFlags, int ContextProfile )
@@ -736,6 +785,60 @@ BOOL isValidOpenGLContext( int MajorVersion, int MinorVersion, int ContextFlags,
     return NO; // Any other configuration is invalid
 }
 
+static void fgOpenSubWindow( SFG_Window *window, int x, int y, int w, int h )
+{
+    AUTORELEASE_POOL;
+
+    // subwindow: implement as a child NSView inside the parent window's view.
+    //
+    // Note on coordinates:
+    // - GLUT subwindow coordinates are relative to the parent content area, with an upper-left origin.
+    // - Cocoa view coordinates are relative to the superview, with a lower-left origin.
+    //   So we convert Y by: cocoaY = parentHeight - glutY - height.
+    if ( !window->Parent ) {
+        fgError( "Subwindow requested without a parent" );
+    }
+
+    NSWindow            *parentWindow = (NSWindow *)window->Parent->Window.Handle;
+    fgOpenGLView        *parentView   = (fgOpenGLView *)window->Parent->Window.pContext.View;
+    NSOpenGLPixelFormat *pixelFormat  = window->Parent->Window.pContext.PixelFormat;
+
+    if ( !parentWindow || !parentView || !pixelFormat ) {
+        fgError( "Invalid parent window for subwindow creation" );
+    }
+
+    CGFloat parentH = parentView.bounds.size.height;
+    NSRect  frame   = NSMakeRect( x, parentH - y - h, w, h );
+
+    fgOpenGLView *openGLView = [[fgOpenGLView alloc] initWithFrame:frame pixelFormat:pixelFormat];
+    if ( !openGLView ) {
+        fgError( "Failed to create fgOpenGLView (subwindow)" );
+    }
+    [openGLView setWantsBestResolutionOpenGLSurface:NO];
+    [parentView addSubview:openGLView];
+    openGLView.fgWindow = window;
+
+    NSOpenGLContext *glContext = [[NSOpenGLContext alloc] initWithFormat:pixelFormat shareContext:nil];
+    if ( !glContext ) {
+        fgError( "Failed to create NSOpenGLContext (subwindow)" );
+    }
+    [glContext setView:openGLView];
+    [glContext makeCurrentContext];
+
+    [openGLView release];
+    [openGLView reshape];
+
+    NSRect backingBounds                    = [openGLView convertRectToBacking:[openGLView bounds]];
+    window->State.pWState.FrameBufferWidth  = (int)backingBounds.size.width;
+    window->State.pWState.FrameBufferHeight = (int)backingBounds.size.height;
+    window->State.Visible                   = window->Parent->State.Visible;
+    window->Window.Handle                   = parentWindow;
+    window->Window.Context                  = glContext;
+    window->Window.pContext.View            = openGLView;
+
+    return;
+}
+
 /*
  * Set the current window’s OpenGL context
  * This is a long function, but it’s mostly boilerplate code so keeping it all in one place
@@ -764,8 +867,21 @@ void fgPlatformOpenWindow( SFG_Window *window,
 
     if ( !isValidOpenGLContext(
              fgState.MajorVersion, fgState.MinorVersion, fgState.ContextFlags, fgState.ContextProfile ) ) {
-        fgError(
-            "ERROR - MacOS only supports Compatibility OpenGL 2.1 and below OR OpenGL Core Profile 3.2 through 4.1" );
+        fgError( "ERROR - MacOS only supports Compatibility OpenGL 2.1 and below OR OpenGL Core Profile 3.2 "
+                 "through 4.1" );
+    }
+
+    //
+    // Handle subwindow creation.
+    //
+    // This is a shortened version that reuses the parent window's pixel format and delegate
+    // but creates a new opengl context and fgOpenGLView as a child of the parent window's content view.
+    //
+
+    if ( isSubWindow ) {
+
+        fgOpenSubWindow( window, positionUse ? x : 0, positionUse ? y : 0, sizeUse ? w : 300, sizeUse ? h : 300 );
+        return;
     }
 
     //
@@ -884,6 +1000,7 @@ void fgPlatformOpenWindow( SFG_Window *window,
 
     // use the fgOpenGLView as the content view
     [nsWindow setContentView:openGLView];
+    window->Window.pContext.View = openGLView;
     [openGLView release]; // NSWindow retains a reference so we can release our own
 
     //
@@ -974,29 +1091,52 @@ void fgPlatformCloseWindow( SFG_Window *window )
     NSOpenGLContext     *context     = (NSOpenGLContext *)window->Window.Context;
     fgWindowDelegate    *delegate    = (fgWindowDelegate *)[nsWindow delegate];
     NSOpenGLPixelFormat *pixelFormat = window->Window.pContext.PixelFormat;
+    fgOpenGLView        *view        = window->Window.pContext.View;
 
-    // 1. Unbind OpenGL context from the view
-    [context clearDrawable];
+    // Unbind OpenGL context from the view
+    if ( context ) {
+        [context clearDrawable];
+    }
 
-    /*
-     * 2. CRITICAL: Detach the content view before closing the window.
-     *
-     * Closing a window can enqueue deferred AppKit/CoreAnimation work that runs
-     * later on what will be a dangling view/context.
-     */
-    [nsWindow setContentView:nil];
+    // Subwindow: detach view only
+    if ( window->Parent ) {
+        if ( view ) {
+            [view removeFromSuperview];
+        }
+    }
+    else if ( nsWindow ) { // Top-level window
+#ifdef USE_CVDISPLAYLINK
+        if ( fgDisplay.pDisplay.DisplayLink ) {
+            CVDisplayLinkStop( (CVDisplayLinkRef)fgDisplay.pDisplay.DisplayLink );
+            CVDisplayLinkRelease( (CVDisplayLinkRef)fgDisplay.pDisplay.DisplayLink );
+            fgDisplay.pDisplay.DisplayLink = nil;
+        }
+#endif
+        if ( delegate ) {
+            delegate.fgWindow = nil;
+            [nsWindow setDelegate:nil];
+        }
 
-    // 3. Close the Window
-    [nsWindow close];
+        // TODO: we should probably remove all subviews left here incase the
+        // subviews are torn down after the parent window. Dont forget to invalidate
+        // all Children windows' pContext.View pointers too.
 
-    // 4. Release openGL context, pixel format and delegate (view already released in OpenWindow)
+        // CRITICAL: Detach the content view before closing the window.
+        // [nsWindow setDelegate:nil];
+        [nsWindow setContentView:nil];
+
+        // Close the Window
+        [nsWindow close];
+        [delegate release];
+    }
+
     [context release];
     [pixelFormat release];
-    [delegate release];
 
     window->Window.Handle               = nil;
     window->Window.Context              = nil;
     window->Window.pContext.PixelFormat = nil;
+    window->Window.pContext.View        = nil;
 }
 
 /*
@@ -1005,6 +1145,15 @@ void fgPlatformCloseWindow( SFG_Window *window )
 void fgPlatformShowWindow( SFG_Window *window )
 {
     AUTORELEASE_POOL;
+
+    if ( window->Parent ) {
+        fgOpenGLView *view = (fgOpenGLView *)window->Window.pContext.View;
+        if ( view ) {
+            [view setHidden:NO];
+        }
+        window->State.Visible = GL_TRUE;
+        return;
+    }
 
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
 
@@ -1023,6 +1172,15 @@ void fgPlatformHideWindow( SFG_Window *window )
 {
     AUTORELEASE_POOL;
 
+    if ( window->Parent ) {
+        fgOpenGLView *view = (fgOpenGLView *)window->Window.pContext.View;
+        if ( view ) {
+            [view setHidden:YES];
+        }
+        window->State.Visible = GL_FALSE;
+        return;
+    }
+
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
     [nsWindow orderOut:nil];
     window->State.Visible = GL_FALSE;
@@ -1034,6 +1192,11 @@ void fgPlatformHideWindow( SFG_Window *window )
 void fgPlatformIconifyWindow( SFG_Window *window )
 {
     AUTORELEASE_POOL;
+
+    if ( window->Parent ) {
+        // Subwindows cannot be iconified independently
+        return;
+    }
 
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
     [nsWindow miniaturize:nil];
@@ -1047,6 +1210,11 @@ void fgPlatformGlutSetWindowTitle( const char *str )
 {
     AUTORELEASE_POOL;
 
+    // Ignore subwindows
+    if ( fgStructure.CurrentWindow && fgStructure.CurrentWindow->Parent ) {
+        return;
+    }
+
     NSWindow *nsWindow = (NSWindow *)fgStructure.CurrentWindow->Window.Handle;
     [nsWindow setTitle:[NSString stringWithUTF8String:str]];
 }
@@ -1058,9 +1226,12 @@ void fgPlatformGlutSetIconTitle( const char *str )
 {
     AUTORELEASE_POOL;
 
-    NSWindow *nsWindow = (NSWindow *)fgStructure.CurrentWindow->Window.Handle;
+    // Ignore subwindows
+    if ( fgStructure.CurrentWindow && fgStructure.CurrentWindow->Parent ) {
+        return;
+    }
 
-    // you cannot set the icon title on macOS, but you can set the miniwindow title
+    NSWindow *nsWindow = (NSWindow *)fgStructure.CurrentWindow->Window.Handle;
     [nsWindow setMiniwindowTitle:[NSString stringWithUTF8String:str]];
 }
 
@@ -1077,8 +1248,22 @@ void fgPlatformPositionWindow( SFG_Window *window, int x, int y )
         fgError( "Invalid platform window state in fgPlatformPositionWindow" );
     }
 
-    // Need to flip y coordinate for Cocoa, which uses a bottom-left origin
-    // Note: fgDisplay.ScreenHeight excludes menu bar
+    if ( window->Parent ) {
+        fgOpenGLView *view = (fgOpenGLView *)window->Window.pContext.View;
+        if ( !view ) {
+            fgError( "Invalid subwindow view in fgPlatformPositionWindow" );
+        }
+
+        NSView *parentView = [view superview];
+        CGFloat parentH    = parentView ? parentView.bounds.size.height : 0;
+        NSRect  frame      = [view frame];
+        frame.origin       = NSMakePoint( x, parentH - y - frame.size.height );
+        [view setFrameOrigin:frame.origin];
+        [view reshape];
+        return;
+    }
+
+    // Top-level: flip y coordinate for Cocoa (bottom-left origin)
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
     NSRect    frame    = [nsWindow frame];
 
@@ -1097,6 +1282,10 @@ void fgPlatformPushWindow( SFG_Window *window )
 {
     AUTORELEASE_POOL;
 
+    if ( window->Parent ) {
+        return;
+    }
+
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
     [nsWindow orderBack:nil];
 }
@@ -1108,6 +1297,10 @@ void fgPlatformPopWindow( SFG_Window *window )
 {
     AUTORELEASE_POOL;
 
+    if ( window->Parent ) {
+        return;
+    }
+
     NSWindow *nsWindow = (NSWindow *)window->Window.Handle;
     [nsWindow orderFront:nil];
 }
@@ -1118,6 +1311,10 @@ void fgPlatformPopWindow( SFG_Window *window )
 void fgPlatformFullScreenToggle( SFG_Window *win )
 {
     AUTORELEASE_POOL;
+
+    if ( win->Parent ) {
+        return;
+    }
 
     NSWindow *nsWindow = (NSWindow *)win->Window.Handle;
     [nsWindow toggleFullScreen:nil];

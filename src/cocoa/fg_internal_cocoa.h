@@ -90,6 +90,7 @@ struct CocoaPlatformDisplay {
 /* Platform-specific window context */
 struct CocoaPlatformContext {
     void *PixelFormat; /* Pixel format - NSOpenGLPixelFormat* */
+    void *View;        /* View hosting this window - NSView* (fgOpenGLView*) */
 };
 
 /* Platform window state info */
