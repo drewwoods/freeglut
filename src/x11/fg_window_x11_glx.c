@@ -199,12 +199,12 @@ GLXContext fghCreateNewContext( SFG_Window* window )
 {
   /* for color model calculation */
   int menu = ( window->IsMenu && !fgStructure.MenuContext );
-  int index_mode = ( fgState.DisplayMode & GLUT_INDEX );
+  int index_mode = 0;
 
   /* "classic" context creation */
   Display *dpy = fgDisplay.pDisplay.Display;
   GLXFBConfig config = window->Window.pContext.FBConfig;
-  int render_type = ( !menu && index_mode ) ? GLX_COLOR_INDEX_TYPE : GLX_RGBA_TYPE;
+  int render_type;
   GLXContext share_list = NULL;
   Bool direct = ( fgState.DirectContext != GLUT_FORCE_INDIRECT_CONTEXT );
   GLXContext context;
@@ -212,6 +212,13 @@ GLXContext fghCreateNewContext( SFG_Window* window )
   /* new context creation */
   int attributes[9];
   CreateContextAttribsProc createContextAttribs = (CreateContextAttribsProc) fgPlatformGetProcAddress( "glXCreateContextAttribsARB" );
+
+  {
+    int renderMask = 0;
+    glXGetFBConfigAttrib( dpy, config, GLX_RENDER_TYPE, &renderMask );
+    index_mode = ( renderMask & GLX_COLOR_INDEX_BIT ) && !( renderMask & GLX_RGBA_BIT );
+  }
+  render_type = ( !menu && index_mode ) ? GLX_COLOR_INDEX_TYPE : GLX_RGBA_TYPE;
 
   /* glXCreateContextAttribsARB not found, yet the user has requested the new context creation */
   if ( !createContextAttribs && !fghIsLegacyContextRequested(window) ) {

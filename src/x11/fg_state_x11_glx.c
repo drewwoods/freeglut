@@ -23,6 +23,7 @@
 
 #include <GL/freeglut.h>
 #include "fg_internal.h"
+#include "fg_dstr.h"
 #include "x11/fg_window_x11_glx.h"
 
 #ifndef GL_SAMPLES
@@ -111,10 +112,26 @@ int fghPlatformGlutGetGLX ( GLenum eWhat )
         /*  We should not have to call fghChooseConfig again here.  */
 #ifdef USE_FBCONFIG
         GLXFBConfig config;
+        int doubleBuffered = 0;
+        int treatAsSingle = 0;
+        if( fghDisplayStringIsActive() )
+            return fghChooseConfigDisplayString( &config, &doubleBuffered, &treatAsSingle );
+        return fghChooseConfig(&config);
 #else
 		XVisualInfo *config;
+        int possible;
+        if( fghDisplayStringIsActive() )
+        {
+            int doubleBuffered = 0;
+            int treatAsSingle = 0;
+            possible = fghChooseConfigDisplayString( &config, &doubleBuffered, &treatAsSingle );
+        }
+        else
+            possible = fghChooseConfig(&config);
+        if( possible && config )
+            XFree( config );
+        return possible;
 #endif
-        return fghChooseConfig(&config);
     }
 
     /* This is system-dependent */

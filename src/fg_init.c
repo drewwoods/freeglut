@@ -25,6 +25,7 @@
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
 #include "fg_internal.h"
+#include "fg_dstr.h"
 
 /*
  * A structure pointed by fgDisplay holds all information
@@ -38,6 +39,8 @@ SFG_Display fgDisplay;
 SFG_State fgState = { { -1, -1, GL_FALSE },  /* Position */
                       { 300, 300, GL_TRUE }, /* Size */
                       GLUT_RGBA | GLUT_SINGLE | GLUT_DEPTH,  /* DisplayMode */
+                      NULL,                   /* DisplayString */
+                      0,                      /* DisplayStringExtraMode */
                       GL_FALSE,              /* Initialised */
                       GLUT_TRY_DIRECT_CONTEXT,  /* DirectContext */
                       GL_FALSE,              /* ForceIconic */
@@ -262,6 +265,7 @@ void fgDeinitialize( void )
     fgState.Size.Use = GL_TRUE;
 
     fgState.DisplayMode = GLUT_RGBA | GLUT_SINGLE | GLUT_DEPTH;
+    fgState.DisplayStringExtraMode = 0;
 
     fgState.DirectContext  = GLUT_TRY_DIRECT_CONTEXT;
     fgState.ForceIconic         = GL_FALSE;
@@ -298,88 +302,15 @@ void fgDeinitialize( void )
         fgState.ProgramName = NULL;
     }
 
+    if( fgState.DisplayString )
+    {
+        free( fgState.DisplayString );
+        fgState.DisplayString = NULL;
+    }
+
     fgPlatformCloseDisplay ();
 
     fgState.Initialised = GL_FALSE;
-}
-
-typedef enum {
-  NONE, EQ, NEQ, LTE, GTE, GT, LT, MIN, INVALID
-} Comparison;
-
-typedef struct _Criterion {
-  Comparison comparison;
-  int value;
-} Criterion;
-
-/* Parse a display string token and return a Criterion struct.
- * Based on the original GLUT implementation:
- * https://github.com/markkilgard/glut/blob/master/lib/glut/glut_dstr.c
- */
-Criterion parseCriteria(char *word)
-{
-    Criterion c = { NONE, 0 };
-    char     *cstr, *vstr = NULL, *response;
-
-    cstr = strpbrk( word, "=><!~" );
-
-    if ( cstr ) {
-        if ( strlen( cstr ) < 2 ) {
-            c.comparison = INVALID;
-            return c;
-        }
-
-        switch ( cstr[0] ) {
-        case '=':
-            c.comparison = EQ;
-            vstr         = &cstr[1];
-            break;
-        case '~':
-            c.comparison = MIN;
-            vstr         = &cstr[1];
-            break;
-        case '>':
-            if ( cstr[1] == '=' ) {
-                c.comparison = GTE;
-                vstr         = &cstr[2];
-            }
-            else {
-                c.comparison = GT;
-                vstr         = &cstr[1];
-            }
-            break;
-        case '<':
-            if ( cstr[1] == '=' ) {
-                c.comparison = LTE;
-                vstr         = &cstr[2];
-            }
-            else {
-                c.comparison = LT;
-                vstr         = &cstr[1];
-            }
-            break;
-        case '!':
-            if ( cstr[1] == '=' ) {
-                c.comparison = NEQ;
-                vstr         = &cstr[2];
-            }
-            else {
-                c.comparison = INVALID;
-            }
-            break;
-        }
-
-        if ( vstr ) {
-            c.value = (int)strtol( vstr, &response, 0 );
-            if ( response == vstr ) {
-                /* Not a valid number. */
-                c.comparison = INVALID;
-                c.value = 0;
-            }
-        }
-    }
-
-    return c;
 }
 
 #if defined(NEED_XPARSEGEOMETRY_IMPL) || defined(TARGET_HOST_MS_WINDOWS)
@@ -482,249 +413,22 @@ void FGAPIENTRY glutInitDisplayMode( unsigned int displayMode )
     fgState.DisplayMode = displayMode;
 }
 
-
-/* -- INIT DISPLAY STRING PARSING ------------------------------------------ */
-
-static char* Tokens[] =
-{
-    "alpha", "acca", "acc", "blue", "buffer", "conformant", "depth", "double",
-    "green", "index", "num", "red", "rgba", "rgb", "luminance", "stencil",
-    "single", "stereo", "samples", "slow", "win32pdf", "win32pfd", "xvisual",
-    "xstaticgray", "xgrayscale", "xstaticcolor", "xpseudocolor",
-    "xtruecolor", "xdirectcolor",
-    "xstaticgrey", "xgreyscale", "xstaticcolour", "xpseudocolour",
-    "xtruecolour", "xdirectcolour", "borderless", "aux", "auxbufs"
-};
-#define NUM_TOKENS             (sizeof(Tokens) / sizeof(*Tokens))
-
 void FGAPIENTRY glutInitDisplayString( const char* displayMode )
 {
-    Criterion criteria ;
-    int glut_state_flag = 0 ;
-    /*
-     * Unpack a lot of options from a character string.  The options are
-     * delimited by blanks or tabs.
-     */
-    char *token ;
-    size_t len = strlen ( displayMode );
-    char *buffer = (char *)malloc ( (len+1) * sizeof(char) );
-    memcpy ( buffer, displayMode, len );
-    buffer[len] = '\0';
-
-    token = strtok ( buffer, " \t" );
-
-    while ( token )
+    if( fgState.DisplayString )
     {
-        /* Process this token */
-        int i ;
-
-        /* Temporary fix:  Ignore any length specifications and at least
-         * process the basic token
-         * TODO:  Fix this permanently
-         */
-        size_t cleanlength = strcspn ( token, "=<>~!" );
-
-        for ( i = 0; i < NUM_TOKENS; i++ )
-        {
-            if ( strncmp ( token, Tokens[i], cleanlength ) == 0 ) break ;
-        }
-
-        switch ( i )
-        {
-        case 0 :  /* "alpha":  Alpha color buffer precision in bits */
-            glut_state_flag |= GLUT_ALPHA ;  /* Somebody fix this for me! */
-            break ;
-
-        case 1 :  /* "acca":  Red, green, blue, and alpha accumulation buffer
-                     precision in bits */
-            glut_state_flag |= GLUT_ACCUM ;  /* Somebody fix this for me! */
-            break ;
-
-        case 2 :  /* "acc":  Red, green, and blue accumulation buffer precision
-                     in bits with zero bits alpha */
-            glut_state_flag |= GLUT_ACCUM ;  /* Somebody fix this for me! */
-            break ;
-
-        case 3 :  /* "blue":  Blue color buffer precision in bits */
-            break ;
-
-        case 4 :  /* "buffer":  Number of bits in the color index color buffer
-                   */
-            break ;
-
-        case 5 :  /* "conformant":  Boolean indicating if the frame buffer
-                     configuration is conformant or not */
-            break ;
-
-        case 6 : /* "depth":  Number of bits of precision in the depth buffer */
-            glut_state_flag |= GLUT_DEPTH ;  /* Somebody fix this for me! */
-            break ;
-
-        case 7 :  /* "double":  Boolean indicating if the color buffer is
-                     double buffered */
-            glut_state_flag |= GLUT_DOUBLE ;
-            break ;
-
-        case 8 :  /* "green":  Green color buffer precision in bits */
-            break ;
-
-        case 9 :  /* "index":  Boolean if the color model is color index or not
-                   */
-            glut_state_flag |= GLUT_INDEX ;
-            break ;
-
-        case 10 :  /* "num":  A special capability  name indicating where the
-                      value represents the Nth frame buffer configuration
-                      matching the description string */
-            break ;
-
-        case 11 :  /* "red":  Red color buffer precision in bits */
-            break ;
-
-        case 12 :  /* "rgba":  Number of bits of red, green, blue, and alpha in
-                      the RGBA color buffer */
-            glut_state_flag |= GLUT_RGBA ;  /* Somebody fix this for me! */
-            break ;
-
-        case 13 :  /* "rgb":  Number of bits of red, green, and blue in the
-                      RGBA color buffer with zero bits alpha */
-            glut_state_flag |= GLUT_RGB ;  /* Somebody fix this for me! */
-            break ;
-
-        case 14 :  /* "luminance":  Number of bits of red in the RGBA and zero
-                      bits of green, blue (alpha not specified) of color buffer
-                      precision */
-            glut_state_flag |= GLUT_LUMINANCE ; /* Somebody fix this for me! */
-            break ;
-
-        case 15 :  /* "stencil":  Number of bits in the stencil buffer */
-            glut_state_flag |= GLUT_STENCIL;  /* Somebody fix this for me! */
-            break ;
-
-        case 16 :  /* "single":  Boolean indicate the color buffer is single
-                      buffered */
-            glut_state_flag |= GLUT_SINGLE ;
-            break ;
-
-        case 17 :  /* "stereo":  Boolean indicating the color buffer supports
-                      OpenGL-style stereo */
-            glut_state_flag |= GLUT_STEREO ;
-            break ;
-
-        case 18 :  /* "samples":  Indicates the number of multisamples to use
-                      based on GLX's SGIS_multisample extension (for
-                      antialiasing) */
-            {
-                glut_state_flag |= GLUT_MULTISAMPLE;
-                criteria = parseCriteria(token);
-                switch (criteria.comparison) {
-                case EQ:
-                    fgState.SampleNumber = criteria.value;
-                    break;
-                case NONE:
-                    fgState.SampleNumber = 4;
-                    break;
-                default:
-                    fgWarning("WARNING - Only '=' is supported for samples:  %s", token);
-                    break;
-                }
-            }
-            break ;
-
-        case 19 :  /* "slow":  Boolean indicating if the frame buffer
-                      configuration is slow or not */
-            break ;
-
-        case 20 :  /* "win32pdf": (incorrect spelling but was there before */
-        case 21 :  /* "win32pfd":  matches the Win32 Pixel Format Descriptor by
-                      number */
-#if TARGET_HOST_MS_WINDOWS
-#endif
-            break ;
-
-        case 22 :  /* "xvisual":  matches the X visual ID by number */
-#if TARGET_HOST_POSIX_X11
-#endif
-            break ;
-
-        case 23 :  /* "xstaticgray": */
-        case 29 :  /* "xstaticgrey":  boolean indicating if the frame buffer
-                      configuration's X visual is of type StaticGray */
-#if TARGET_HOST_POSIX_X11
-#endif
-            break ;
-
-        case 24 :  /* "xgrayscale": */
-        case 30 :  /* "xgreyscale":  boolean indicating if the frame buffer
-                      configuration's X visual is of type GrayScale */
-#if TARGET_HOST_POSIX_X11
-#endif
-            break ;
-
-        case 25 :  /* "xstaticcolor": */
-        case 31 :  /* "xstaticcolour":  boolean indicating if the frame buffer
-                      configuration's X visual is of type StaticColor */
-#if TARGET_HOST_POSIX_X11
-#endif
-            break ;
-
-        case 26 :  /* "xpseudocolor": */
-        case 32 :  /* "xpseudocolour":  boolean indicating if the frame buffer
-                      configuration's X visual is of type PseudoColor */
-#if TARGET_HOST_POSIX_X11
-#endif
-            break ;
-
-        case 27 :  /* "xtruecolor": */
-        case 33 :  /* "xtruecolour":  boolean indicating if the frame buffer
-                      configuration's X visual is of type TrueColor */
-#if TARGET_HOST_POSIX_X11
-#endif
-            break ;
-
-        case 28 :  /* "xdirectcolor": */
-        case 34 :  /* "xdirectcolour":  boolean indicating if the frame buffer
-                      configuration's X visual is of type DirectColor */
-#if TARGET_HOST_POSIX_X11
-#endif
-            break ;
-
-        case 35 :  /* "borderless":  windows should not have borders */
-            glut_state_flag |= GLUT_BORDERLESS;
-            break ;
-
-        case 36 :  /* "aux"  OR  */
-        case 37 :  /* "auxbufs":  some number of aux buffers */
-            {
-                glut_state_flag |= GLUT_AUX;
-                criteria = parseCriteria(token);
-                switch (criteria.comparison) {
-                case EQ:
-                    fgState.AuxiliaryBufferNumber = criteria.value;
-                    break;
-                case NONE:
-                    fgState.AuxiliaryBufferNumber = 1;
-                    break;
-                default:
-                    fgWarning("WARNING - Only '=' is supported for auxbufs:  %s", token);
-                    break;
-                }
-            }
-            break ;
-
-        case 38 :  /* Unrecognized */
-            fgWarning ( "WARNING - Display string token not recognized:  %s",
-                        token );
-            break ;
-        }
-
-        token = strtok ( NULL, " \t" );
+        free( fgState.DisplayString );
+        fgState.DisplayString = NULL;
     }
 
-    free ( buffer );
+    fgState.DisplayStringExtraMode = fghDisplayStringParseExtraMode( displayMode );
 
-    /* We will make use of this value when creating a new OpenGL context... */
-    fgState.DisplayMode = glut_state_flag;
+    if( displayMode )
+    {
+        fgState.DisplayString = strdup( displayMode );
+        if( !fgState.DisplayString )
+            fgError( "Could not allocate storage for the display string." );
+    }
 }
 
 /* -- SETTING OPENGL 3.0 CONTEXT CREATION PARAMETERS ---------------------- */

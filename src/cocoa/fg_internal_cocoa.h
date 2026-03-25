@@ -116,4 +116,7 @@ typedef struct CocoaPlatformDisplay  SFG_PlatformDisplay;
 typedef struct CocoaPlatformContext  SFG_PlatformContext;
 typedef struct CocoaPlatformJoystick SFG_PlatformJoystick;
 
+extern void *fghCreatePixelFormatCocoa( GLboolean gameMode, GLboolean isMenu,
+                                        int *doubleBuffered, int *treatAsSingle );
+
 #endif /* FREEGLUT_INTERNAL_COCOA_H */

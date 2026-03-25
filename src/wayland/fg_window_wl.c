@@ -28,6 +28,7 @@
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
 #include "../fg_internal.h"
+#include "../fg_dstr.h"
 #include "egl/fg_window_egl.h"
 #define fghCreateNewContext fghCreateNewContextEGL
 
@@ -85,11 +86,17 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
                            GLboolean sizeUse, int w, int h,
                            GLboolean gameMode, GLboolean isSubWindow )
 {
+    int doubleBuffered = 1;
+    int treatAsSingle = 0;
+
     /* Save the display mode if we are creating a menu window */
     if( window->IsMenu && ( ! fgStructure.MenuContext ) )
         fgState.DisplayMode = GLUT_DOUBLE | GLUT_RGB ;
 
-    fghChooseConfig( &window->Window.pContext.egl.Config );
+    if( !window->IsMenu && fghDisplayStringIsActive() )
+        fghChooseConfigDisplayStringEGL( &window->Window.pContext.egl.Config, &doubleBuffered, &treatAsSingle );
+    else
+        fghChooseConfig( &window->Window.pContext.egl.Config );
 
     if( ! window->Window.pContext.egl.Config )
     {
@@ -98,7 +105,7 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
          * context is not available.
          * Try a couple of variations to see if they will work.
          */
-        if( fgState.DisplayMode & GLUT_MULTISAMPLE )
+        if( !fghDisplayStringIsActive() && ( fgState.DisplayMode & GLUT_MULTISAMPLE ) )
         {
             fgState.DisplayMode &= ~GLUT_MULTISAMPLE ;
             fghChooseConfig( &window->Window.pContext.egl.Config );
@@ -109,6 +116,9 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
     FREEGLUT_INTERNAL_ERROR_EXIT( window->Window.pContext.egl.Config != NULL,
                                   "EGL configuration with necessary capabilities "
                                   "not found", "fgOpenWindow" );
+
+    window->Window.DoubleBuffered = doubleBuffered;
+    window->Window.TreatAsSingle = treatAsSingle;
 
     if( ! positionUse )
         x = y = -1; /* default window position */
@@ -307,4 +317,3 @@ void fgPlatformFullScreenToggle( SFG_Window *win )
         win->State.IsFullscreen = !win->State.IsFullscreen;
     }
 }
-

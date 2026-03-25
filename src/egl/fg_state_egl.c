@@ -25,6 +25,7 @@
 
 #include <GL/freeglut.h>
 #include "fg_internal.h"
+#include "fg_dstr.h"
 #include "egl/fg_window_egl.h"
 
 /*
@@ -79,6 +80,10 @@ int fghPlatformGlutGetEGL ( GLenum eWhat )
     {
         /*  We should not have to call fghChooseConfig again here.  */
         EGLConfig config;
+        int doubleBuffered = 0;
+        int treatAsSingle = 0;
+        if( fghDisplayStringIsActive() )
+            return fghChooseConfigDisplayStringEGL( &config, &doubleBuffered, &treatAsSingle );
         return fghChooseConfig(&config);
     }
 

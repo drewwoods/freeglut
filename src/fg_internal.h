@@ -347,6 +347,8 @@ struct tagSFG_State
     SFG_XYUse        Position;             /* The default windows' position  */
     SFG_XYUse        Size;                 /* The default windows' size      */
     unsigned int     DisplayMode;          /* Display mode for new windows   */
+    char            *DisplayString;        /* Display string for new windows */
+    unsigned int     DisplayStringExtraMode;/* Non-FB display-string extras  */
 
     GLboolean        Initialised;          /* freeglut has been initialised  */
 
@@ -451,6 +453,7 @@ struct tagSFG_Context
     SFG_PlatformContext pContext;    /* The window's FBConfig (X11) or device context (Windows) */
 
     int DoubleBuffered;              /* Treat the window as double-buffered */
+    int TreatAsSingle;               /* Use front-buffer behavior on a double-buffered format */
 
     /* When drawing geometry to vertex attribute buffers, user specifies
      * the attribute indices for vertices, normals and/or texture coords

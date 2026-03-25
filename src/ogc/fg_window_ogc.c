@@ -39,6 +39,8 @@ void fgPlatformOpenWindow(SFG_Window *window, const char *title,
 
     window->State.WorkMask |= GLUT_INIT_WORK | GLUT_VISIBILITY_WORK;
     window->State.Visible = GL_TRUE;
+    window->Window.DoubleBuffered = ( fgState.DisplayMode & GLUT_DOUBLE ) != 0;
+    window->Window.TreatAsSingle = 0;
 
     /* This sets up the XFB for the chosen buffering scheme */
     fgOgcDisplaySetupXfb();

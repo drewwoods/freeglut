@@ -51,7 +51,8 @@ void FGAPIENTRY glutSwapBuffers( void )
     FREEGLUT_EXIT_IF_NO_WINDOW ( "glutSwapBuffers" );
 
     glFlush( );
-    if( ! fgStructure.CurrentWindow->Window.DoubleBuffered )
+    if( !fgStructure.CurrentWindow->Window.DoubleBuffered ||
+        fgStructure.CurrentWindow->Window.TreatAsSingle )
         return;
 
     fgPlatformGlutSwapBuffers( &fgDisplay.pDisplay, fgStructure.CurrentWindow );

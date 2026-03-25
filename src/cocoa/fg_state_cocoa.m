@@ -22,6 +22,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+BOOL isValidOpenGLContext( int MajorVersion, int MinorVersion, int ContextFlags, int ContextProfile );
+
 static int *appendIfUnique( int *array, int *arr_size, int value )
 {
     for ( int i = 0; i < *arr_size; i++ ) {
@@ -63,6 +65,24 @@ int fgPlatformGlutDeviceGet( GLenum eWhat )
 int fgPlatformGlutGet( GLenum eWhat )
 {
     AUTORELEASE_POOL;
+
+    if ( eWhat == GLUT_DISPLAY_MODE_POSSIBLE ) {
+        NSOpenGLPixelFormat *pixelFormat;
+        int doubleBuffered = 0;
+        int treatAsSingle = 0;
+
+        if ( !isValidOpenGLContext(
+                 fgState.MajorVersion, fgState.MinorVersion, fgState.ContextFlags, fgState.ContextProfile ) ) {
+            return 0;
+        }
+
+        pixelFormat = (NSOpenGLPixelFormat *)fghCreatePixelFormatCocoa( GL_FALSE, GL_FALSE, &doubleBuffered, &treatAsSingle );
+        if ( pixelFormat ) {
+            [pixelFormat release];
+            return 1;
+        }
+        return 0;
+    }
 
     if ( !fgStructure.CurrentWindow )
         return 0;
@@ -221,10 +241,6 @@ int fgPlatformGlutGet( GLenum eWhat )
         /* macOS does not have a specific sRGB flag */
         return 0;
     }
-    case GLUT_DISPLAY_MODE_POSSIBLE:
-        /* TODO: Query fgState.ContextFlags to determine if display mode config is possible for now assume it is */
-        return 1;
-
     case GLUT_WINDOW_FORMAT_ID:
         /* macOS does not have a specific format ID */
         return 0;

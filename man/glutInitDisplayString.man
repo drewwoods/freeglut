@@ -246,6 +246,15 @@ capability description is provided, fast frame buffer configurations
 will be choosen in preference to slow frame buffer configurations, but
 slow frame buffer configurations will still be choosen if no better
 fast frame buffer configuration is available.
+.SH NOTES
+freeglut also accepts \fBaux\fP as an alias for \fBauxbufs\fP,
+\fBwin32pdf\fP as a compatibility spelling of \fBwin32pfd\fP, UK
+spellings of the X visual class tokens, and \fBborderless\fP as a
+non-framebuffer window-style extension.
+
+Backend-specific tokens remain backend-specific.  On Cocoa,
+\fBxvisual\fP, the X visual class tokens, \fBindex\fP, and
+\fBluminance\fP requests are not supported.
 .SH EXAMPLE
 Here is an examples using glutInitDisplayString:
 .nf

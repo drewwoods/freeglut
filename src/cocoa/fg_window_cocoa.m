@@ -20,6 +20,7 @@
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
 #include "../fg_internal.h"
+#include "../fg_dstr.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -1023,6 +1024,8 @@ static void fgOpenSubWindow( SFG_Window *window, int x, int y, int w, int h )
     window->Window.Context                  = glContext;
     window->Window.pContext.View            = openGLView;
     window->Window.pContext.PixelFormat     = pixelFormat;
+    window->Window.DoubleBuffered           = window->Parent->Window.DoubleBuffered;
+    window->Window.TreatAsSingle            = window->Parent->Window.TreatAsSingle;
 
     return;
 }
@@ -1043,6 +1046,9 @@ void fgPlatformOpenWindow( SFG_Window *window,
     GLboolean                          isSubWindow )
 {
     AUTORELEASE_POOL;
+    unsigned int windowMode = fghDisplayStringWindowModeMask();
+    int doubleBuffered = 0;
+    int treatAsSingle = 0;
 
     //
     // 0. Sanity Checks and Subwindow Handling
@@ -1072,68 +1078,14 @@ void fgPlatformOpenWindow( SFG_Window *window,
         return;
     }
 
-    //
-    // 1. Define pixel format attributes based on fgState.DisplayMode
-    //
-    // TODO: Move this to a separate function to support fgPlatformGlutGet(GLUT_DISPLAY_MODE_POSSIBLE)
-    //
-
-    NSOpenGLPixelFormatAttribute attrs[32];
-    int                          attrIndex = 0;
-    attrs[attrIndex++]                     = NSOpenGLPFAAccelerated; // choose hardware acceleration
-    attrs[attrIndex++]                     = NSOpenGLPFAColorSize;
-    attrs[attrIndex++]                     = 24; // 8 bits per RGB channel
-    attrs[attrIndex++]                     = NSOpenGLPFAAlphaSize;
-    attrs[attrIndex++]                     = 8;
-    if ( fgState.DisplayMode & GLUT_DOUBLE ) {
-        attrs[attrIndex++] = NSOpenGLPFADoubleBuffer;
-    }
-    if ( fgState.DisplayMode & GLUT_DEPTH ) {
-        // TODO make this configurable when glutInitDisplayString implementation is complete eg depth>=24
-        attrs[attrIndex++] = NSOpenGLPFADepthSize;
-        attrs[attrIndex++] = 24;
-    }
-    if ( fgState.DisplayMode & GLUT_STENCIL ) {
-        // TODO make this configurable when glutInitDisplayString implementation is complete eg stencil<=8
-        attrs[attrIndex++] = NSOpenGLPFAStencilSize;
-        attrs[attrIndex++] = 8;
-    }
-    if ( fgState.DisplayMode & GLUT_ACCUM ) {
-        // TODO make this configurable when glutInitDisplayString implementation is complete eg acca~32
-        attrs[attrIndex++] = NSOpenGLPFAAccumSize;
-        attrs[attrIndex++] = 32;
-    }
-    if ( fgState.DisplayMode & GLUT_AUX ) {
-        attrs[attrIndex++] = NSOpenGLPFAAuxBuffers;
-        attrs[attrIndex++] = fghNumberOfAuxBuffersRequested( );
-    }
-    if ( fgState.DisplayMode & GLUT_MULTISAMPLE ) {
-        attrs[attrIndex++] = NSOpenGLPFAMultisample; // boolean
-        attrs[attrIndex++] = NSOpenGLPFASampleBuffers;
-        attrs[attrIndex++] = 1;
-        attrs[attrIndex++] = NSOpenGLPFASamples;
-        attrs[attrIndex++] = fgState.SampleNumber;
-    }
-
-    // Note sRGB framebuffer always enabled, but need
-    // glEnable(GL_FRAMEBUFFER_SRGB) for sRGB encoding to actually take effect
-    // on writes.
-
-    // profile selection
-    attrs[attrIndex++] = NSOpenGLPFAOpenGLProfile;
-    if ( fgState.MajorVersion == 3 && !window->IsMenu )
-        attrs[attrIndex++] = NSOpenGLProfileVersion3_2Core;
-    else if ( fgState.MajorVersion == 4 && !window->IsMenu )
-        attrs[attrIndex++] = NSOpenGLProfileVersion4_1Core;
-    else
-        attrs[attrIndex++] = NSOpenGLProfileVersionLegacy;
-    attrs[attrIndex++] = 0; // Null terminator
-
-    NSOpenGLPixelFormat *pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
+    NSOpenGLPixelFormat *pixelFormat =
+        (NSOpenGLPixelFormat *)fghCreatePixelFormatCocoa( gameMode, window->IsMenu, &doubleBuffered, &treatAsSingle );
     if ( !pixelFormat ) {
         fgError( "Failed to create pixel format" );
     }
     window->Window.pContext.PixelFormat = pixelFormat;
+    window->Window.DoubleBuffered = doubleBuffered;
+    window->Window.TreatAsSingle = treatAsSingle;
 
     //
     // 2. Create fgOpenGLView without a pixel format (the pixel format is used later in step 5)
@@ -1177,7 +1129,7 @@ void fgPlatformOpenWindow( SFG_Window *window,
 
     NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable |
                               NSWindowStyleMaskResizable;
-    if ( window->IsMenu || gameMode || ( fgState.DisplayMode & GLUT_BORDERLESS ) ) {
+    if ( window->IsMenu || gameMode || ( windowMode & GLUT_BORDERLESS ) ) {
         style = NSWindowStyleMaskBorderless;
     }
     NSWindow *nsWindow = [[NSWindow alloc] initWithContentRect:fullscreenFrame
@@ -1255,7 +1207,7 @@ void fgPlatformOpenWindow( SFG_Window *window,
 
     // Create and configure CVDisplayLink, if not already created
 #ifdef USE_CVDISPLAYLINK
-    if ( ( fgState.DisplayMode & GLUT_DOUBLE ) && !fgDisplay.pDisplay.DisplayLink ) {
+    if ( window->Window.DoubleBuffered && !window->Window.TreatAsSingle && !fgDisplay.pDisplay.DisplayLink ) {
         CVDisplayLinkCreateWithActiveCGDisplays( (CVDisplayLinkRef *)&fgDisplay.pDisplay.DisplayLink );
         CVDisplayLinkSetOutputCallback( fgDisplay.pDisplay.DisplayLink, &fgDisplayLinkCallback, nil );
         CVDisplayLinkStart( fgDisplay.pDisplay.DisplayLink );

@@ -30,6 +30,7 @@
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
 #include "fg_internal.h"
+#include "fg_dstr.h"
 #include "egl/fg_window_egl.h"
 #include <sys/pps.h>
 
@@ -42,6 +43,9 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
                            GLboolean sizeUse, int w, int h,
                            GLboolean gameMode, GLboolean isSubWindow )
 {
+    int doubleBuffered = 1;
+    int treatAsSingle = 0;
+
     /* TODO: only one full-screen window possible? */
     if (fgDisplay.pDisplay.single_native_window != NULL) {
         fgWarning("You can't have more than one window on BlackBerry");
@@ -57,7 +61,12 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
     fgDisplay.pDisplay.single_native_window = sWindow;
 
     /* Choose config and screen format */
-    fghChooseConfig(&window->Window.pContext.egl.Config);
+    if( fghDisplayStringIsActive() )
+        fghChooseConfigDisplayStringEGL( &window->Window.pContext.egl.Config, &doubleBuffered, &treatAsSingle );
+    else
+        fghChooseConfig(&window->Window.pContext.egl.Config);
+    window->Window.DoubleBuffered = doubleBuffered;
+    window->Window.TreatAsSingle = treatAsSingle;
     int screenFormat = SCREEN_FORMAT_RGBA8888; /* Only SCREEN_FORMAT_RGBA8888 and SCREEN_FORMAT_RGB565 are supported. See fg_window_egl for more info */
     int configAttri;
 #define EGL_QUERY_COMP(att, comp) (eglGetConfigAttrib(fgDisplay.pDisplay.egl.Display, window->Window.pContext.egl.Config, att, &configAttri) == GL_TRUE && (configAttri comp))

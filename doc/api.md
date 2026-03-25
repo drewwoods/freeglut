@@ -485,13 +485,20 @@ will accept negative window coordinates.
 
 **Changes From GLUT**
 
+*freeglut* implements GLUT-style display-string parsing and matching,
+including comparators and left-to-right precedence. The active display
+string takes precedence over `glutInitDisplayMode()` for framebuffer
+selection until cleared with `glutInitDisplayString(NULL)`.
 
-glutInitDisplayString support is limited: any of the tokens recognized
-by GLUT are also recognized by *freeglut*, but any statements with
-comparators cannot (yet: do [help develop
-this!](../help.php)) be handled. Any spec (comparator and value) after the token
-is ignored. However, many of these values can be set with glutSetOption
-for now...
+Backend-specific tokens remain backend-specific. `xvisual` and the X11
+visual-class tokens are only meaningful on X11, and `win32pfd` is only
+meaningful on Win32. *freeglut* also accepts `aux` as an alias for
+`auxbufs`, UK spellings for the X11 visual-class tokens, `win32pdf` as a
+compatibility spelling of `win32pfd`, and `borderless` as a non-framebuffer
+window-style extension.
+
+On Cocoa, X11 visual-class tokens, `xvisual`, `index`, and `luminance`
+requests are not supported.
 
 ### 4.5 glutInitErrorFunc, glutInitWarningFunc
 
@@ -3308,4 +3315,3 @@ if (glutGet(GLUT_VERSION) < 20001) {     printf("Sorry, you need freeglut versio
 ### 21.4 References
 
 ### 21.5 Index
-

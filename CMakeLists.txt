@@ -119,6 +119,8 @@ SET(FREEGLUT_SRCS
     ${FREEGLUT_HEADERS}
     src/fg_callbacks.c
     src/fg_cursor.c
+    src/fg_dstr.c
+    src/fg_dstr.h
     src/fg_display.c
     src/fg_ext.c
     src/fg_font_data.c
@@ -160,6 +162,7 @@ ENDIF()
 IF(WIN32)
     LIST(APPEND FREEGLUT_SRCS
         src/mswin/fg_cursor_mswin.c
+        src/mswin/fg_dstr_mswin.c
         src/mswin/fg_display_mswin.c
         src/mswin/fg_ext_mswin.c
         src/mswin/fg_gamemode_mswin.c
@@ -248,6 +251,7 @@ ELSEIF(FREEGLUT_COCOA)
         # objc files
         src/cocoa/fg_cmap_cocoa.m
         src/cocoa/fg_cursor_cocoa.m
+        src/cocoa/fg_dstr_cocoa.m
         src/cocoa/fg_display_cocoa.m
         src/cocoa/fg_gamemode_cocoa.m
         src/cocoa/fg_init_cocoa.m
@@ -287,6 +291,7 @@ ELSE()
     ELSE()
         LIST(APPEND FREEGLUT_SRCS
             src/x11/fg_cursor_x11.c
+            src/x11/fg_dstr_x11.c
             src/x11/fg_ext_x11.c
             src/x11/fg_gamemode_x11.c
             src/x11/fg_glutfont_definitions_x11.c
@@ -321,6 +326,7 @@ IF(FREEGLUT_GLES OR FREEGLUT_WAYLAND)
     LIST(APPEND FREEGLUT_SRCS
         src/egl/fg_internal_egl.h
         src/egl/fg_display_egl.c
+        src/egl/fg_dstr_egl.c
         src/egl/fg_ext_egl.c
         src/egl/fg_init_egl.c
         src/egl/fg_init_egl.h
@@ -773,6 +779,7 @@ ADD_DEMO(keyboard        progs/demos/keyboard/keyboard.c)
 ADD_DEMO(indexed_color   progs/demos/indexed_color/idxcol.c)
 ADD_DEMO(3dview          progs/demos/3dview/3dview.c)
 ADD_DEMO(accum           progs/demos/accum/accum.c)
+ADD_DEMO(dstrprobe       progs/demos/dstrprobe/dstrprobe.c)
 ADD_DEMO(windows         progs/demos/windows/windows.c)
 ADD_DEMO(vsync           progs/demos/vsync/vsync.c)
 ADD_DEMO(fonts           progs/demos/fonts/fonts.c)
