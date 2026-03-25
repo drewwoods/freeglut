@@ -24,6 +24,7 @@
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
 #include "../fg_internal.h"
+#include "../fg_dstr.h"
 
 
 /* The following include file is available from SGI but is not standard:
@@ -256,80 +257,105 @@ GLboolean fgSetupPixelFormat( SFG_Window* window, GLboolean checkOnly,
     int pixelformat;
     HDC current_hDC;
     GLboolean success = GL_FALSE;
+    int actualDoubleBuffered = 0;
+    int treatAsSingle = 0;
+    GLboolean useDisplayString = fghDisplayStringIsActive() && ( !window || !window->IsMenu );
 
     if (checkOnly)
       current_hDC = CreateDC(TEXT("DISPLAY"), NULL ,NULL ,NULL);
     else
       current_hDC = window->Window.pContext.Device;
 
-    fghFillPFD(&pfd, current_hDC, layer_type);
-    if(!(pixelformat = ChoosePixelFormat(current_hDC, &pfd))) {
-		return 0;
-	}
-
-    /* windows hack for multismapling/sRGB */
-    if ( ( fgState.DisplayMode & GLUT_MULTISAMPLE ) ||
-         ( fgState.DisplayMode & GLUT_SRGB ) )
+    if( useDisplayString )
     {
-        HGLRC rc, rc_before=wglGetCurrentContext();
-        HWND hWnd;
-        HDC hDC, hDC_before=wglGetCurrentDC();
-        WNDCLASS wndCls;
+        memset( &pfd, 0, sizeof( pfd ) );
+        if( !fghChoosePixelFormatDisplayString( current_hDC, layer_type, &pixelformat, &pfd,
+                                                &actualDoubleBuffered, &treatAsSingle ) )
+            goto end;
+    }
+    else
+    {
+        fghFillPFD(&pfd, current_hDC, layer_type);
+        if(!(pixelformat = ChoosePixelFormat(current_hDC, &pfd))) {
+    		goto end;
+    	}
 
-        /* create a dummy window */
-        ZeroMemory(&wndCls, sizeof(wndCls));
-        wndCls.lpfnWndProc = DefWindowProc;
-        wndCls.hInstance = fgDisplay.pDisplay.Instance;
-        wndCls.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-        wndCls.lpszClassName = _T("FREEGLUT_dummy");
-        RegisterClass( &wndCls );
-
-        hWnd=CreateWindow(_T("FREEGLUT_dummy"), _T(""), WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW , 0,0,0,0, 0, 0, fgDisplay.pDisplay.Instance, 0 );
-        hDC=GetDC(hWnd);
-        SetPixelFormat(hDC, pixelformat, &pfd);
-
-        rc = wglCreateContext( hDC );
-        wglMakeCurrent(hDC, rc);
-
-        if ( fghIsExtensionSupported( hDC, "WGL_ARB_multisample" ) )
+        /* windows hack for multismapling/sRGB */
+        if ( ( fgState.DisplayMode & GLUT_MULTISAMPLE ) ||
+             ( fgState.DisplayMode & GLUT_SRGB ) )
         {
-            PFNWGLCHOOSEPIXELFORMATARBPROC wglChoosePixelFormatARBProc =
-              (PFNWGLCHOOSEPIXELFORMATARBPROC) wglGetProcAddress("wglChoosePixelFormatARB");
-            if ( wglChoosePixelFormatARBProc )
-            {
-                int attributes[100];
-                int iPixelFormat;
-                BOOL bValid;
-                float fAttributes[] = { 0, 0 };
-                UINT numFormats;
-                fghFillPixelFormatAttributes(attributes, &pfd);
-                bValid = wglChoosePixelFormatARBProc(hDC, attributes, fAttributes, 1, &iPixelFormat, &numFormats);
+            HGLRC rc, rc_before=wglGetCurrentContext();
+            HWND hWnd;
+            HDC hDC, hDC_before=wglGetCurrentDC();
+            WNDCLASS wndCls;
 
-                if ( bValid && numFormats > 0 )
+            /* create a dummy window */
+            ZeroMemory(&wndCls, sizeof(wndCls));
+            wndCls.lpfnWndProc = DefWindowProc;
+            wndCls.hInstance = fgDisplay.pDisplay.Instance;
+            wndCls.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+            wndCls.lpszClassName = _T("FREEGLUT_dummy");
+            RegisterClass( &wndCls );
+
+            hWnd=CreateWindow(_T("FREEGLUT_dummy"), _T(""), WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW , 0,0,0,0, 0, 0, fgDisplay.pDisplay.Instance, 0 );
+            hDC=GetDC(hWnd);
+            SetPixelFormat(hDC, pixelformat, &pfd);
+
+            rc = wglCreateContext( hDC );
+            wglMakeCurrent(hDC, rc);
+
+            if ( fghIsExtensionSupported( hDC, "WGL_ARB_multisample" ) )
+            {
+                PFNWGLCHOOSEPIXELFORMATARBPROC wglChoosePixelFormatARBProc =
+                  (PFNWGLCHOOSEPIXELFORMATARBPROC) wglGetProcAddress("wglChoosePixelFormatARB");
+                if ( wglChoosePixelFormatARBProc )
                 {
-                    pixelformat = iPixelFormat;
+                    int attributes[100];
+                    int iPixelFormat;
+                    BOOL bValid;
+                    float fAttributes[] = { 0, 0 };
+                    UINT numFormats;
+                    fghFillPixelFormatAttributes(attributes, &pfd);
+                    bValid = wglChoosePixelFormatARBProc(hDC, attributes, fAttributes, 1, &iPixelFormat, &numFormats);
+
+                    if ( bValid && numFormats > 0 )
+                    {
+                        pixelformat = iPixelFormat;
+                    }
                 }
             }
-        }
 
-        wglMakeCurrent( hDC_before, rc_before);
-        wglDeleteContext(rc);
-        ReleaseDC(hWnd, hDC);
-        DestroyWindow(hWnd);
-        UnregisterClass(_T("FREEGLUT_dummy"), fgDisplay.pDisplay.Instance);
+            wglMakeCurrent( hDC_before, rc_before);
+            wglDeleteContext(rc);
+            ReleaseDC(hWnd, hDC);
+            DestroyWindow(hWnd);
+            UnregisterClass(_T("FREEGLUT_dummy"), fgDisplay.pDisplay.Instance);
+        }
     }
 
 	if(pixelformat) {
 		DescribePixelFormat(current_hDC, pixelformat, sizeof pfd, &pfd);
 
-		if(fgState.DisplayMode & GLUT_INDEX) {
-			if(pfd.iPixelType == PFD_TYPE_RGBA) goto end;
-		} else {
-			if(pfd.iPixelType == PFD_TYPE_COLORINDEX) goto end;
-		}
+		if( !useDisplayString )
+		{
+			if(fgState.DisplayMode & GLUT_INDEX) {
+				if(pfd.iPixelType == PFD_TYPE_RGBA) goto end;
+			} else {
+				if(pfd.iPixelType == PFD_TYPE_COLORINDEX) goto end;
+			}
+        }
+
+        actualDoubleBuffered = ( pfd.dwFlags & PFD_DOUBLEBUFFER ) != 0;
+        if( !useDisplayString && actualDoubleBuffered && !( fgState.DisplayMode & GLUT_DOUBLE ) )
+            treatAsSingle = 1;
 	}
 
     success = ( pixelformat != 0 ) && ( checkOnly || SetPixelFormat( current_hDC, pixelformat, &pfd) );
+    if( success && window && !checkOnly )
+    {
+        window->Window.DoubleBuffered = actualDoubleBuffered;
+        window->Window.TreatAsSingle = treatAsSingle;
+    }
 
 end:
 	if(checkOnly) {
@@ -364,11 +390,13 @@ void fgPlatformSetWindow ( SFG_Window *window )
 
 void fghGetDefaultWindowStyle(DWORD *flags)
 {
-    if ( fgState.DisplayMode & GLUT_BORDERLESS )
+    unsigned int windowMode = fghDisplayStringWindowModeMask();
+
+    if ( windowMode & GLUT_BORDERLESS )
     {
         /* no window decorations needed, no-op */
     }
-    else if ( fgState.DisplayMode & GLUT_CAPTIONLESS )
+    else if ( windowMode & GLUT_CAPTIONLESS )
         /* only window decoration is a border, no title bar or buttons */
         (*flags) |= WS_DLGFRAME;
     else
@@ -564,6 +592,7 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
     BOOL atom;
     HDC dc;
     TCHAR* tstr = NULL;
+    PIXELFORMATDESCRIPTOR pfd;
 
     /* Grab the window class we have registered on glutInit(): */
     atom = GetClassInfo( fgDisplay.pDisplay.Instance, _T("FREEGLUT"), &wc );
@@ -712,8 +741,9 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
 	}
 
 	dc = window->Window.pContext.Device;
+    DescribePixelFormat( dc, GetPixelFormat( dc ), sizeof( pfd ), &pfd );
 	/* for color index mode, create a palette */
-	if(fgState.DisplayMode & GLUT_INDEX) {
+	if(pfd.iPixelType == PFD_TYPE_COLORINDEX) {
 		char buf[sizeof(LOGPALETTE) + 255 * sizeof(PALETTEENTRY)];
 		LOGPALETTE *logipal = (LOGPALETTE*)buf;
 

@@ -29,8 +29,14 @@
 
 #ifdef USE_FBCONFIG
 int fghChooseConfig(GLXFBConfig *fbconfig);
+int fghChooseConfigDisplayString(GLXFBConfig *fbconfig,
+                                 int *doubleBuffered,
+                                 int *treatAsSingle);
 #else
 int fghChooseConfig(XVisualInfo **vinf_ret);
+int fghChooseConfigDisplayString(XVisualInfo **vinf_ret,
+                                 int *doubleBuffered,
+                                 int *treatAsSingle);
 #endif
 GLXContext fghCreateNewContext(SFG_Window* window);
 

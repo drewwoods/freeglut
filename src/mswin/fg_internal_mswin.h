@@ -110,6 +110,12 @@ struct tagSFG_PlatformWindowState
     TCHAR*          IconTitle;
 };
 
+#if !defined(_WIN32_WCE)
+extern int fghChoosePixelFormatDisplayString( HDC hdc, unsigned char layer_type,
+                                              int *pixelformat, PIXELFORMATDESCRIPTOR *ppfd,
+                                              int *doubleBuffered, int *treatAsSingle );
+#endif
+
 
 
 /* Joystick-Specific Definitions */

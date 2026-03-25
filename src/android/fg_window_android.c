@@ -29,6 +29,7 @@
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
 #include "fg_internal.h"
+#include "fg_dstr.h"
 #include "egl/fg_window_egl.h"
 #include <android/native_app_glue/android_native_app_glue.h>
 
@@ -41,6 +42,9 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
                            GLboolean sizeUse, int w, int h,
                            GLboolean gameMode, GLboolean isSubWindow )
 {
+  int doubleBuffered = 1;
+  int treatAsSingle = 0;
+
   /* TODO: only one full-screen window possible? */
   if (fgDisplay.pDisplay.single_native_window != NULL) {
     fgWarning("You can't have more than one window on Android");
@@ -67,7 +71,13 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
   window->State.WorkMask |= GLUT_INIT_WORK;
 
   /* Create context */
-  fghChooseConfig(&window->Window.pContext.egl.Config);
+  if (fghDisplayStringIsActive()) {
+    fghChooseConfigDisplayStringEGL(&window->Window.pContext.egl.Config, &doubleBuffered, &treatAsSingle);
+  } else {
+    fghChooseConfig(&window->Window.pContext.egl.Config);
+  }
+  window->Window.DoubleBuffered = doubleBuffered;
+  window->Window.TreatAsSingle = treatAsSingle;
   window->Window.Context = fghCreateNewContextEGL(window);
 
   EGLDisplay display = fgDisplay.pDisplay.egl.Display;

@@ -25,6 +25,7 @@
 #define FREEGLUT_BUILDING_LIB
 #include <GL/freeglut.h>
 #include "fg_internal.h"
+#include "fg_dstr.h"
 #include "fg_gl2.h"
 
 extern void fgPlatformSetWindow ( SFG_Window *window );
@@ -50,16 +51,18 @@ int fghIsLegacyContextRequested( SFG_Window *win )
 
 int fghNumberOfAuxBuffersRequested( void )
 {
-  if ( fgState.DisplayMode & GLUT_AUX4 ) {
+  unsigned int mode = fghDisplayStringWindowModeMask();
+
+  if ( mode & GLUT_AUX4 ) {
     return 4;
   }
-  if ( fgState.DisplayMode & GLUT_AUX3 ) {
+  if ( mode & GLUT_AUX3 ) {
     return 3;
   }
-  if ( fgState.DisplayMode & GLUT_AUX2 ) {
+  if ( mode & GLUT_AUX2 ) {
     return 2;
   }
-  if ( fgState.DisplayMode & GLUT_AUX1 ) { /* NOTE: Same as GLUT_AUX! */
+  if ( mode & GLUT_AUX1 ) { /* NOTE: Same as GLUT_AUX! */
     return fgState.AuxiliaryBufferNumber;
   }
   return 0;
@@ -106,18 +109,11 @@ void fgOpenWindow( SFG_Window* window, const char* title,
     fgSetWindow( window );
 
 #ifndef EGL_VERSION_1_0
-    window->Window.DoubleBuffered =
-        ( fgState.DisplayMode & GLUT_DOUBLE ) ? 1 : 0;
-
-    if ( ! window->Window.DoubleBuffered )
+    if ( !window->Window.DoubleBuffered || window->Window.TreatAsSingle )
     {
         glDrawBuffer ( GL_FRONT );
         glReadBuffer ( GL_FRONT );
     }
-#else
-    /* - EGL is always double-buffered */
-    /* - No glDrawBuffer/glReadBuffer in GLES */
-    window->Window.DoubleBuffered = 1;
 #endif
     window->Window.attribute_v_coord = -1;
     window->Window.attribute_v_normal = -1;

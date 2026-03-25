@@ -27,6 +27,7 @@
 #define __FG_WINDOW_EGL_H__
 
 extern int fghChooseConfig(EGLConfig* config);
+extern int fghChooseConfigDisplayStringEGL( EGLConfig* config, int *doubleBuffered, int *treatAsSingle );
 extern void fghPlatformOpenWindowEGL( SFG_Window* window );
 extern EGLConfig fghCreateNewContextEGL( SFG_Window* window );
 extern void fghPlatformCloseWindowEGL( SFG_Window* window );

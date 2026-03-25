@@ -28,6 +28,7 @@
 #include <unistd.h>     /* usleep, gethostname, getpid */
 #include <sys/types.h>  /* pid_t */
 #include "../fg_internal.h"
+#include "../fg_dstr.h"
 
 #ifdef EGL_VERSION_1_0
 #include "egl/fg_window_egl.h"
@@ -157,9 +158,13 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
 	XWMHints wmHints;
 	XEvent eventReturnBuffer; /* return buffer required for a call */
 	unsigned long mask;
+	unsigned int windowMode = fghDisplayStringWindowModeMask();
 	unsigned int current_DisplayMode = fgState.DisplayMode;
 	XEvent fakeEvent = {0};
 	Atom xa_motif_wm_hints = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
+	GLboolean indexMode = GL_FALSE;
+	int doubleBuffered = 0;
+	int treatAsSingle = 0;
 
 #ifdef EGL_VERSION_1_0
 	EGLint vid = 0;
@@ -181,7 +186,15 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
 #define WINDOW_CONFIG window->Window.pContext.visinf
 #endif  /* !def USE_FBCONFIG */
 #endif
-	fghChooseConfig(&WINDOW_CONFIG);
+	if(!window->IsMenu && fghDisplayStringIsActive()) {
+#ifdef EGL_VERSION_1_0
+		fghChooseConfigDisplayStringEGL(&WINDOW_CONFIG, &doubleBuffered, &treatAsSingle);
+#else
+		fghChooseConfigDisplayString(&WINDOW_CONFIG, &doubleBuffered, &treatAsSingle);
+#endif
+	} else {
+		fghChooseConfig(&WINDOW_CONFIG);
+	}
 
 	if(window->IsMenu && !fgStructure.MenuContext) {
 		fgState.DisplayMode = current_DisplayMode;
@@ -194,16 +207,19 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
 		 * Try a couple of variations to see if they will work.
 		 */
 #ifndef EGL_VERSION_1_0
-		if(!(fgState.DisplayMode & GLUT_DOUBLE)) {
+		if(!fghDisplayStringIsActive() && !(fgState.DisplayMode & GLUT_DOUBLE)) {
 			fgState.DisplayMode |= GLUT_DOUBLE;
 			fghChooseConfig(&WINDOW_CONFIG);
 			fgState.DisplayMode &= ~GLUT_DOUBLE;
 
-			if(WINDOW_CONFIG) goto done_retry;
+			if(WINDOW_CONFIG) {
+				treatAsSingle = 1;
+				goto done_retry;
+			}
 		}
 #endif
 
-		if(fgState.DisplayMode & GLUT_MULTISAMPLE) {
+		if(!fghDisplayStringIsActive() && (fgState.DisplayMode & GLUT_MULTISAMPLE)) {
 			fgState.DisplayMode &= ~GLUT_MULTISAMPLE;
 			fghChooseConfig(&WINDOW_CONFIG);
 			fgState.DisplayMode |= GLUT_MULTISAMPLE;
@@ -211,7 +227,7 @@ void fgPlatformOpenWindow( SFG_Window* window, const char* title,
 			if(WINDOW_CONFIG) goto done_retry;
 		}
 
-		if(fgState.DisplayMode & GLUT_SRGB) {
+		if(!fghDisplayStringIsActive() && (fgState.DisplayMode & GLUT_SRGB)) {
 			fgState.DisplayMode &= ~GLUT_SRGB;
 			fghChooseConfig(&WINDOW_CONFIG);
 			fgState.DisplayMode |= GLUT_SRGB;
@@ -236,18 +252,45 @@ done_retry:
 	}
 	visualTemplate.visualid = vid;
 	visualInfo = XGetVisualInfo(dpy, VisualIDMask, &visualTemplate, &num_visuals);
+	if(!fghDisplayStringIsActive()) {
+		doubleBuffered = 1;
+	}
 #else
 #ifdef USE_FBCONFIG
 	visualInfo = glXGetVisualFromFBConfig(dpy, window->Window.pContext.FBConfig);
 
 	FREEGLUT_INTERNAL_ERROR_EXIT( visualInfo != NULL,
 			"visualInfo could not be retrieved from FBConfig", "fgOpenWindow");
+
+	{
+		int renderType = 0;
+		int isDoubleBuffered = 0;
+		glXGetFBConfigAttrib(dpy, window->Window.pContext.FBConfig, GLX_RENDER_TYPE, &renderType);
+		glXGetFBConfigAttrib(dpy, window->Window.pContext.FBConfig, GLX_DOUBLEBUFFER, &isDoubleBuffered);
+		indexMode = (renderType & GLX_COLOR_INDEX_BIT) && !(renderType & GLX_RGBA_BIT);
+		if(!fghDisplayStringIsActive()) {
+			doubleBuffered = isDoubleBuffered;
+		}
+	}
 #else
 	visualInfo = window->Window.pContext.visinf;
+	{
+		int rgba = 1;
+		int isDoubleBuffered = 0;
+		glXGetConfig(dpy, visualInfo, GLX_RGBA, &rgba);
+		glXGetConfig(dpy, visualInfo, GLX_DOUBLEBUFFER, &isDoubleBuffered);
+		indexMode = !rgba;
+		if(!fghDisplayStringIsActive()) {
+			doubleBuffered = isDoubleBuffered;
+		}
+	}
 #endif  /* !def USE_FBCONFIG */
 #endif  /* GLX part */
 
-	if(fgState.DisplayMode & GLUT_INDEX) {
+	window->Window.DoubleBuffered = doubleBuffered;
+	window->Window.TreatAsSingle = treatAsSingle;
+
+	if(indexMode) {
 		cmap = XCreateColormap(dpy, rootwin, visualInfo->visual, AllocAll);
 		FREEGLUT_INTERNAL_ERROR_EXIT(cmap,
 				"Failed to allocate the whole colormap, which is required in index color mode", "fgOpenWindow");
@@ -382,14 +425,14 @@ done_retry:
 	XSetWMProtocols(dpy, win, &fgDisplay.pDisplay.DeleteWindow, 1);
 
 	if (!isSubWindow && !window->IsMenu &&
-			((fgState.DisplayMode & GLUT_BORDERLESS) || (fgState.DisplayMode & GLUT_CAPTIONLESS)))
+			((windowMode & GLUT_BORDERLESS) || (windowMode & GLUT_CAPTIONLESS)))
 	{
 		/* _MOTIF_WM_HINTS is replaced by _NET_WM_WINDOW_TYPE, but that property does not allow precise
 		 * control over the visual style of the window, which is what we are trying to achieve here.
 		 * Stick with Motif and hope for the best... */
 		MotifWmHints hints = {0};
 		hints.flags = MWM_HINTS_DECORATIONS;
-		hints.decorations = (fgState.DisplayMode & GLUT_CAPTIONLESS) ? MWM_DECOR_BORDER:0;
+		hints.decorations = (windowMode & GLUT_CAPTIONLESS) ? MWM_DECOR_BORDER:0;
 
 		XChangeProperty(dpy, win, xa_motif_wm_hints, xa_motif_wm_hints, 32, PropModeReplace,
 				(unsigned char*)&hints, sizeof(MotifWmHints) / sizeof(long));
@@ -670,4 +713,3 @@ void fgPlatformFullScreenToggle( SFG_Window *win )
         win->State.IsFullscreen = !win->State.IsFullscreen;
     }
 }
-
