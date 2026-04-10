@@ -22,6 +22,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "fg_pixel_format_cocoa.h"
+
 static int *appendIfUnique( int *array, int *arr_size, int value )
 {
     for ( int i = 0; i < *arr_size; i++ ) {
@@ -64,10 +66,8 @@ int fgPlatformGlutGet( GLenum eWhat )
 {
     AUTORELEASE_POOL;
 
-    /* Window independent checks first */
     if ( eWhat == GLUT_DISPLAY_MODE_POSSIBLE )
-        /* TODO: Query fgState.ContextFlags to determine if display mode config is possible for now assume it is */
-        return 1;
+        return fgCocoaIsDisplayModePossible( GL_FALSE );
 
     if ( !fgStructure.CurrentWindow )
         return 0;
