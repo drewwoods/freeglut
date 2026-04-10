@@ -23,6 +23,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "fg_pixel_format_cocoa.h"
+
 void fghOnReshapeNotify( SFG_Window *window, int width, int height, GLboolean forceNotify );
 void fghOnPositionNotify( SFG_Window *window, int x, int y, GLboolean forceNotify );
 
@@ -99,114 +101,6 @@ static void fghCocoaContentOriginToFreeglut( const SFG_Window *window, NSRect co
 
 - (void)releaseAllKeys;
 @end
-/* Translates a display string criterion into a concrete attribute value.
- * Based on APPLE GLUT's  weightForCriterion function.
- * For capabilities with min/max ranges, uses these bounds.
- *
- * TODO: Look up min/max ranges from system capabilities (loadMinMaxWeights
- * function in APPLE GLUT)
- */
-static int fghWeightForCriterion( FGCriterion criterion, int minWeight, int maxWeight )
-{
-    switch ( criterion.comparison ) {
-    case FG_EQ:
-        return criterion.value;
-    case FG_NEQ: {
-        int candidate;
-        candidate = maxWeight - criterion.value;
-        if ( candidate != criterion.value && candidate > minWeight )
-            return candidate;
-        else if ( maxWeight != criterion.value )
-            return maxWeight;
-        else
-            return minWeight;
-    }
-    case FG_LT:
-    case FG_LTE:
-        return minWeight;
-    case FG_GT:
-    case FG_GTE:
-        return maxWeight;
-    case FG_MIN:
-        return criterion.value > minWeight ? criterion.value : minWeight;
-    case FG_UNSPECIFIED: /* No specific requirement, set to max */
-        return maxWeight;
-    case FG_NONE:
-    default:
-        return 0;
-    }
-}
-
-/* Builds NSOpenGLPixelFormatAttribute array from display string criteria.
- * Returns number of attributes added (not including terminator).
- * Default ranges used: depth 0-32, stencil 0-8, accum 0-32, samples 0-16
- */
-static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
-{
-    FGDisplayStringCriteria *c = &fgState.DisplayStrCriteria;
-    int                      n = 0;
-
-    // Always request accelerated rendering and closest policy
-    attrs[n++] = NSOpenGLPFAAccelerated;
-    attrs[n++] = NSOpenGLPFAClosestPolicy;
-
-    int colorBits = 0;
-    colorBits     = MAX( fghWeightForCriterion( c->red, 0, 16 ), colorBits );
-    colorBits     = MAX( fghWeightForCriterion( c->green, 0, 16 ), colorBits );
-    colorBits     = MAX( fghWeightForCriterion( c->blue, 0, 16 ), colorBits );
-    colorBits *= 3; /* 3 channels */
-    if ( colorBits > 0 ) {
-        attrs[n++] = NSOpenGLPFAColorSize;
-        attrs[n++] = colorBits;
-    }
-
-    int alphaBits = fghWeightForCriterion( c->alpha, 0, 16 );
-    if ( alphaBits > 0 ) {
-        attrs[n++] = NSOpenGLPFAAlphaSize;
-        attrs[n++] = alphaBits;
-    }
-
-    int accumBits = 0;
-    accumBits     = MAX( fghWeightForCriterion( c->accumRed, 0, 32 ), accumBits );
-    accumBits     = MAX( fghWeightForCriterion( c->accumGreen, 0, 32 ), accumBits );
-    accumBits     = MAX( fghWeightForCriterion( c->accumBlue, 0, 32 ), accumBits );
-    accumBits     = MAX( fghWeightForCriterion( c->accumAlpha, 0, 32 ), accumBits );
-    accumBits *= 4; /* 4 channels */
-    if ( accumBits > 0 ) {
-        attrs[n++] = NSOpenGLPFAAccumSize;
-        attrs[n++] = accumBits;
-    }
-
-    if ( c->depth.comparison != FG_NONE ) {
-        attrs[n++] = NSOpenGLPFADepthSize;
-        attrs[n++] = fghWeightForCriterion( c->depth, 0, 32 );
-    }
-
-    if ( c->stencil.comparison != FG_NONE ) {
-        attrs[n++] = NSOpenGLPFAStencilSize;
-        attrs[n++] = fghWeightForCriterion( c->stencil, 0, 8 );
-    }
-
-    if ( c->auxBuffers.comparison != FG_NONE ) {
-        // TODO need to dynamically query max aux buffers supported as done in fgPlatformGlutGetModeValues()
-        attrs[n++] = NSOpenGLPFAAuxBuffers;
-        attrs[n++] = fghWeightForCriterion( c->auxBuffers, 0, 2 );
-    }
-
-    if ( c->samples.comparison != FG_NONE ) {
-        int samples = fghWeightForCriterion( c->samples, 0, 16 );
-        if ( samples > 0 ) {
-            attrs[n++] = NSOpenGLPFAMultisample;
-            attrs[n++] = NSOpenGLPFASampleBuffers;
-            attrs[n++] = 1;
-            attrs[n++] = NSOpenGLPFASamples;
-            attrs[n++] = samples;
-        }
-    }
-
-    return n;
-}
-
 /*****************************************************************
  * Window Delegate                                               *
  *****************************************************************/
@@ -1043,41 +937,6 @@ void fgPlatformReshapeWindow( SFG_Window *window, int width, int height )
     [view reshape];
 }
 
-BOOL isValidOpenGLContext( int MajorVersion, int MinorVersion, int ContextFlags, int ContextProfile )
-{
-    AUTORELEASE_POOL;
-
-    // Case 1: OpenGL 2.1 or below (Compatibility mode)
-    if ( MajorVersion < 2 || ( MajorVersion == 2 && MinorVersion <= 1 ) ) {
-        if ( ContextProfile != 0 && ContextProfile != GLUT_COMPATIBILITY_PROFILE ) {
-            return NO; // Profile must be compatibility or unspecified for 2.1
-        }
-        return YES; // Valid configuration
-    }
-
-    // Case 2: OpenGL 3.2 through 4.1 (Core Profile only)
-    if ( ( MajorVersion == 3 && MinorVersion >= 2 ) || ( MajorVersion == 4 && MinorVersion <= 1 ) ) {
-
-        // Must be Core Profile
-        if ( ContextProfile != GLUT_CORE_PROFILE ) {
-            return NO; // Only Core Profile is supported for 3.2+
-        }
-        return YES; // Valid configuration
-    }
-
-    // Case 3: OpenGL 3.0-3.1 (not supported on macOS)
-    if ( MajorVersion == 3 && MinorVersion < 2 ) {
-        return NO;
-    }
-
-    // Case 4: OpenGL 4.2+ (not supported on macOS)
-    if ( MajorVersion > 4 || ( MajorVersion == 4 && MinorVersion > 1 ) ) {
-        return NO;
-    }
-
-    return NO; // Any other configuration is invalid
-}
-
 static void fgOpenSubWindow( SFG_Window *window, int x, int y, int w, int h )
 {
     AUTORELEASE_POOL;
@@ -1160,7 +1019,7 @@ void fgPlatformOpenWindow( SFG_Window *window,
         fgState.ContextFlags &= ~GLUT_DEBUG;
     }
 
-    if ( !isValidOpenGLContext(
+    if ( !fgCocoaIsValidContextRequest(
              fgState.MajorVersion, fgState.MinorVersion, fgState.ContextFlags, fgState.ContextProfile ) ) {
         fgError( "ERROR - MacOS only supports Compatibility OpenGL 2.1 and below OR OpenGL Core Profile 3.2 "
                  "through 4.1" );
@@ -1183,63 +1042,7 @@ void fgPlatformOpenWindow( SFG_Window *window,
     // 1. Define pixel format attributes
     //
 
-    NSOpenGLPixelFormatAttribute attrs[128];
-    int                          attrIndex = 0;
-
-    // build attributes from DisplayMode flags
-    attrs[attrIndex++] = NSOpenGLPFAAccelerated;
-    attrs[attrIndex++] = NSOpenGLPFAColorSize;
-    attrs[attrIndex++] = 24; // 8 bits per RGB channel
-    attrs[attrIndex++] = NSOpenGLPFAAlphaSize;
-    attrs[attrIndex++] = 8;
-
-    if ( fgState.DisplayMode & GLUT_DEPTH ) {
-        attrs[attrIndex++] = NSOpenGLPFADepthSize;
-        attrs[attrIndex++] = 24;
-    }
-    if ( fgState.DisplayMode & GLUT_STENCIL ) {
-        attrs[attrIndex++] = NSOpenGLPFAStencilSize;
-        attrs[attrIndex++] = 8;
-    }
-    if ( fgState.DisplayMode & GLUT_ACCUM ) {
-        attrs[attrIndex++] = NSOpenGLPFAAccumSize;
-        attrs[attrIndex++] = 32;
-    }
-    if ( fgState.DisplayMode & GLUT_AUX ) {
-        attrs[attrIndex++] = NSOpenGLPFAAuxBuffers;
-        attrs[attrIndex++] = fghNumberOfAuxBuffersRequested( );
-    }
-    if ( fgState.DisplayMode & GLUT_MULTISAMPLE ) {
-        attrs[attrIndex++] = NSOpenGLPFAMultisample;
-        attrs[attrIndex++] = NSOpenGLPFASampleBuffers;
-        attrs[attrIndex++] = 1;
-        attrs[attrIndex++] = NSOpenGLPFASamples;
-        attrs[attrIndex++] = fgState.SampleNumber;
-    }
-
-    // If glutInitDisplayString was used, build attributes from criteria
-    if ( fgState.DisplayStrCriteria.haveDisplayString ) {
-        attrIndex = fghBuildAttrsFromCriteria( attrs );
-    }
-
-    // Double buffering, stereo and OpenGL profile attributes
-    if ( fgState.DisplayMode & GLUT_DOUBLE ) {
-        attrs[attrIndex++] = NSOpenGLPFADoubleBuffer;
-    }
-    if ( fgState.DisplayMode & GLUT_STEREO ) {
-        attrs[attrIndex++] = NSOpenGLPFAStereo;
-    }
-    attrs[attrIndex++] = NSOpenGLPFAOpenGLProfile;
-    if ( fgState.MajorVersion == 3 && !window->IsMenu )
-        attrs[attrIndex++] = NSOpenGLProfileVersion3_2Core;
-    else if ( fgState.MajorVersion == 4 && !window->IsMenu )
-        attrs[attrIndex++] = NSOpenGLProfileVersion4_1Core;
-    else
-        attrs[attrIndex++] = NSOpenGLProfileVersionLegacy;
-
-    attrs[attrIndex++] = 0; /* Null terminator */
-
-    NSOpenGLPixelFormat *pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
+    NSOpenGLPixelFormat *pixelFormat = fgCocoaCreatePixelFormat( window->IsMenu );
     if ( !pixelFormat ) {
         fgError( "Failed to create pixel format" );
     }
