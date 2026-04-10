@@ -254,6 +254,8 @@ ELSEIF(FREEGLUT_COCOA)
         src/cocoa/fg_internal_cocoa.h
         src/cocoa/fg_joystick_cocoa.m
         src/cocoa/fg_main_cocoa.m
+        src/cocoa/fg_pixel_format_cocoa.h
+        src/cocoa/fg_pixel_format_cocoa.m
         src/cocoa/fg_spaceball_cocoa.m
         src/cocoa/fg_state_cocoa.m
         src/cocoa/fg_window_cocoa.m
@@ -776,6 +778,7 @@ ADD_DEMO(accum           progs/demos/accum/accum.c)
 ADD_DEMO(windows         progs/demos/windows/windows.c)
 ADD_DEMO(vsync           progs/demos/vsync/vsync.c)
 ADD_DEMO(fonts           progs/demos/fonts/fonts.c)
+ADD_DEMO(dstrprobe       progs/demos/dstrprobe/dstrprobe.c)
 
 #######################
 # INSTALLATION
