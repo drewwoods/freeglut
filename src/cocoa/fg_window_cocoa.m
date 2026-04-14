@@ -681,51 +681,14 @@ static void fghCocoaContentOriginToFreeglut( const SFG_Window *window, NSRect co
         fgError( "Freeglut window not set for %s", __func__ );
     }
 
-    NSEventModifierFlags flags   = [event modifierFlags];
-    uint16_t             keyCode = [event keyCode];
-
-    // updates the modifier freeglut state
+    // Only update the modifier state here. Do not fire Special/SpecialUp
+    // callbacks for modifier keys pressed alone; the modifier state is read
+    // by keyDown:/keyUp: when an actual key combination occurs.
+    //
+    // This is consistent with macOS GLUT behavior, but deviates from the behavior
+    // of at least X11 behavior.  To get modifiers users should call glutGetModifiers()
+    // instead of relying on modifier key events.
     [self updateModifiers:event];
-
-    // now lets notify any special key press callbacks
-    int  state      = -1;
-    char specialKey = [fgOpenGLView convertModifierToGlutSpecial:keyCode];
-
-    switch ( specialKey ) {
-    case GLUT_KEY_SHIFT_L:
-    case GLUT_KEY_SHIFT_R:
-        state = ( flags & NSEventModifierFlagShift ) ? GLUT_DOWN : GLUT_UP;
-        break;
-    case GLUT_KEY_CTRL_L:
-    case GLUT_KEY_CTRL_R:
-        state = ( flags & NSEventModifierFlagControl ) ? GLUT_DOWN : GLUT_UP;
-        break;
-    case GLUT_KEY_ALT_L: // Option key on macOS
-    case GLUT_KEY_ALT_R:
-        state = ( flags & NSEventModifierFlagOption ) ? GLUT_DOWN : GLUT_UP;
-        break;
-    case GLUT_KEY_SUPER_L:
-    case GLUT_KEY_SUPER_R:
-        state = ( flags & NSEventModifierFlagCommand ) ? GLUT_DOWN : GLUT_UP;
-        break;
-    default:
-        return; // Ignore unmapped keys
-    }
-
-    NSPoint mouseLoc = [self mouseLocation:event fromOutsideEvent:YES];
-
-    // Update window state mouse position
-    self.fgWindow->State.MouseX = (int)mouseLoc.x;
-    self.fgWindow->State.MouseY = (int)mouseLoc.y;
-
-    if ( state == GLUT_DOWN ) {
-        [self.pressedSpecialKeys addObject:@( specialKey )];
-        INVOKE_WCB( *self.fgWindow, Special, ( specialKey, mouseLoc.x, mouseLoc.y ) );
-    }
-    else {
-        [self.pressedSpecialKeys removeObject:@( specialKey )];
-        INVOKE_WCB( *self.fgWindow, SpecialUp, ( specialKey, mouseLoc.x, mouseLoc.y ) );
-    }
 }
 
 - (void)keyDown:(NSEvent *)event
