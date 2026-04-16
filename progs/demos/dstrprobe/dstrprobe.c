@@ -234,6 +234,44 @@ static int run_self_test( int summaryMode )
     return failures ? 1 : 0;
 }
 
+static int run_display_mode_reset_test( void )
+{
+    unsigned int portableDisplayMode = GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH;
+    unsigned int requestedDisplayMode = GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_STENCIL | GLUT_AUX | GLUT_MULTISAMPLE;
+    ProbeResult  portableBaselineResult;
+    ProbeResult  portableResetResult;
+    ProbeResult  requestedBaselineResult;
+    ProbeResult  requestedResetResult;
+
+    glutInitDisplayMode( portableDisplayMode );
+    probe_display_string( 0, &portableBaselineResult );
+
+    glutInitDisplayString( "rgb depth>256" );
+    glutInitDisplayMode( portableDisplayMode );
+    probe_display_string( 0, &portableResetResult );
+
+    glutInitDisplayMode( requestedDisplayMode );
+    probe_display_string( 0, &requestedBaselineResult );
+
+    glutInitDisplayString( "rgb depth>256" );
+    glutInitDisplayMode( requestedDisplayMode );
+    probe_display_string( 0, &requestedResetResult );
+
+    printf(
+        "display_mode_reset portable_baseline_possible=%d portable_reset_possible=%d portable_display_mode=0x%x requested_baseline_possible=%d requested_reset_possible=%d requested_display_mode=0x%x\n",
+        portableBaselineResult.possible,
+        portableResetResult.possible,
+        portableDisplayMode,
+        requestedBaselineResult.possible,
+        requestedResetResult.possible,
+        requestedDisplayMode );
+
+    return portableBaselineResult.possible == 1 && portableResetResult.possible == 1 &&
+           requestedBaselineResult.possible == requestedResetResult.possible ?
+               0 :
+               1;
+}
+
 int main( int argc, char **argv )
 {
     const char *displayString = argc > 1 ? argv[1] : NULL;
@@ -248,6 +286,9 @@ int main( int argc, char **argv )
 
     if ( displayString && strcmp( displayString, "--self-test-summary" ) == 0 )
         return run_self_test( 1 );
+
+    if ( displayString && strcmp( displayString, "--display-mode-reset-test" ) == 0 )
+        return run_display_mode_reset_test( );
 
     if ( displayString && strcmp( displayString, "NULL" ) == 0 )
         displayString = NULL;
