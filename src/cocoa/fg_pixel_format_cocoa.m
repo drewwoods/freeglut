@@ -49,16 +49,9 @@ static GLboolean fghCocoaUsesUnsupportedPixelMode( void )
     if ( fgState.DisplayMode & GLUT_LUMINANCE )
         return GL_TRUE;
 
-    /*
-     * In the legacy glutInitDisplayMode bitmask, GLUT_SRGB aliases GLUT_AUX1.
-     * GLUT_SRGB is always enabled in cocoa anyway, so we ignore it if it's set.
-     * But the aliasing bug should still be fixed in the future to avoid confusion.
-     */
-#if 0
 #ifdef GLUT_SRGB
     if ( fgState.DisplayMode & GLUT_SRGB )
         return GL_TRUE;
-#endif
 #endif
 
     return GL_FALSE;
