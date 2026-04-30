@@ -250,6 +250,7 @@ int *fgPlatformGlutGetModeValues( GLenum eWhat, int *size )
     }
 
     switch ( eWhat ) {
+    // TODO: check if better to leverage fg_pixel_format_cocoa.m
     case GLUT_AUX: {
         /*
          * Query available auxiliary buffer counts.
@@ -276,6 +277,7 @@ int *fgPlatformGlutGetModeValues( GLenum eWhat, int *size )
         break;
     }
 
+    // TODO: check if better to leverage fg_pixel_format_cocoa.m
     case GLUT_MULTISAMPLE: {
         /*
          * Query available MSAA sample counts
