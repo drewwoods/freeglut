@@ -101,7 +101,7 @@ static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
     FGCriterion              accumBlue = fghResolveCriterion( c->accumBlue, fghMakeCriterion( FG_GTE, 1 ) );
     FGCriterion              accumAlpha = fghResolveCriterion( c->accumAlpha, fghMakeCriterion( FG_GTE, 1 ) );
     FGCriterion              depth = fghResolveCriterion( c->depth, fghMakeCriterion( FG_GTE, 12 ) );
-    FGCriterion              stencil = c->stencil;
+    FGCriterion              stencil    = fghResolveCriterion( c->stencil, fghMakeCriterion( FG_GTE, 1 ) );
     FGCriterion              auxBuffers = fghResolveCriterion( c->auxBuffers, fghMakeCriterion( FG_GTE, 1 ) );
     FGCriterion              samples = fghResolveCriterion( c->samples, fghMakeCriterion( FG_LTE, 4 ) );
 

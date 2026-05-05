@@ -181,6 +181,8 @@ static int run_self_test( int summaryMode )
         { "rgb_double", "rgb double", 1, "Baseline double-buffered RGB configuration" },
         { "basic_rgb_depth", "rgb double depth>=12", 1, "Portable RGB double-buffered depth request" },
         { "rgba_alpha_depth", "rgba alpha>=1 depth>=12", 1, "Explicit alpha plus depth request" },
+        { "rgba_depth_stencil", "rgba double depth stencil", -1,
+            "Bare stencil token should request a stencil-capable format when the platform supports one" },
         { "rgba8_depth24", "red>=8 green>=8 blue>=8 alpha>=8 depth>=24", 1, "Typical modern RGBA8 plus depth configuration" },
         { "depth_eq_16", "depth=16", -1, "Platform-dependent exact 16-bit depth availability" },
         { "depth_neq_16", "depth!=16", -1, "Useful for checking NEQ comparator handling across implementations" },
