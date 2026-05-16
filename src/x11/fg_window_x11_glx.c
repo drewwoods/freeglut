@@ -30,90 +30,80 @@
 #define ATTRIB(a) attributes[where++]=(a)
 #define ATTRIB_VAL(a,v) {ATTRIB(a); ATTRIB(v);}
 
-/* Helper function to evaluate a single criterion against a framebuffer config value.
- * Returns 1 if criterion passes, 0 if it fails.
- * Sets *score to indicate preference (used for ranking matching configs).
- * Based on Mark Kilgard's original GLUT implementation.
- */
-static int fghEvaluateCriterion(FGCriterion criterion, int fbvalue, int *score)
+/* Read every display-string capability of one FBConfig into values[],
+ * indexed by FGCapability, so the shared filter/ranking logic can be used. */
+static void fghReadConfigCapabilities(Display *dpy, GLXFBConfig config, int *values)
 {
-    int result;
-    int cvalue = criterion.value;
+    static const int glxAttrib[FG_CAP_COUNT] = {
+        GLX_RED_SIZE, GLX_GREEN_SIZE, GLX_BLUE_SIZE, GLX_ALPHA_SIZE,
+        GLX_DEPTH_SIZE, GLX_STENCIL_SIZE,
+        GLX_ACCUM_RED_SIZE, GLX_ACCUM_GREEN_SIZE,
+        GLX_ACCUM_BLUE_SIZE, GLX_ACCUM_ALPHA_SIZE,
+        GLX_SAMPLES, GLX_AUX_BUFFERS, GLX_BUFFER_SIZE
+    };
+    int i;
 
-    switch (criterion.comparison) {
-    case FG_NONE:
-        *score = 0;
-        return 1;  /* No criterion always passes */
-    case FG_EQ:
-        result = (cvalue == fbvalue);
-        *score = 1;
-        break;
-    case FG_NEQ:
-        result = (cvalue != fbvalue);
-        *score = 1;
-        break;
-    case FG_LT:
-        result = (fbvalue < cvalue);
-        *score = fbvalue - cvalue;
-        break;
-    case FG_GT:
-        result = (fbvalue > cvalue);
-        *score = fbvalue - cvalue;
-        break;
-    case FG_LTE:
-        result = (fbvalue <= cvalue);
-        *score = fbvalue - cvalue;
-        break;
-    case FG_GTE:
-        result = (fbvalue >= cvalue);
-        *score = fbvalue - cvalue;
-        break;
-    case FG_MIN:
-        result = (fbvalue >= cvalue);
-        *score = cvalue - fbvalue;  /* Prefer values closer to minimum */
-        break;
-    default:
-        *score = 0;
-        return 0;
+    for (i = 0; i < FG_CAP_COUNT; i++)
+    {
+        int value = 0;
+        glXGetFBConfigAttrib(dpy, config, glxAttrib[i], &value);
+        values[i] = value;
     }
-
-    return result;
 }
 
-/* Scores a framebuffer config against display string criteria.
- * Returns the total score, or -1 if the config fails any criterion.
- */
-static int fghScoreConfig(Display *dpy, GLXFBConfig config)
+/* Select the matching FBConfig from fbconfigArray according to the parsed
+ * display-string criteria. Returns the chosen index, or -1 if none match. */
+static int fghSelectConfigByCriteria(Display *dpy, GLXFBConfig *fbconfigArray,
+                                     int fbconfigArraySize)
 {
-    FGDisplayStringCriteria *c = &fgState.DisplayStrCriteria;
-    int totalScore = 0;
-    int score, value, result;
+    const FGDisplayStringCriteria *c = &fgState.DisplayStrCriteria;
+    int (*values)[FG_CAP_COUNT];
+    int *matches;
+    int matchCount = 0;
+    int i, j, chosen;
 
-    #define EVAL_CRITERION(criterion, glx_attrib) \
-        if ((criterion).comparison != FG_NONE) { \
-            glXGetFBConfigAttrib(dpy, config, glx_attrib, &value); \
-            result = fghEvaluateCriterion(criterion, value, &score); \
-            if (!result) return -1; \
-            totalScore += score; \
-        }
+    values  = malloc((size_t)fbconfigArraySize * sizeof(*values));
+    matches = malloc((size_t)fbconfigArraySize * sizeof(*matches));
+    if (!values || !matches)
+    {
+        free(values);
+        free(matches);
+        return -1;
+    }
 
-    EVAL_CRITERION(c->red, GLX_RED_SIZE);
-    EVAL_CRITERION(c->green, GLX_GREEN_SIZE);
-    EVAL_CRITERION(c->blue, GLX_BLUE_SIZE);
-    EVAL_CRITERION(c->alpha, GLX_ALPHA_SIZE);
-    EVAL_CRITERION(c->depth, GLX_DEPTH_SIZE);
-    EVAL_CRITERION(c->stencil, GLX_STENCIL_SIZE);
-    EVAL_CRITERION(c->accumRed, GLX_ACCUM_RED_SIZE);
-    EVAL_CRITERION(c->accumGreen, GLX_ACCUM_GREEN_SIZE);
-    EVAL_CRITERION(c->accumBlue, GLX_ACCUM_BLUE_SIZE);
-    EVAL_CRITERION(c->accumAlpha, GLX_ACCUM_ALPHA_SIZE);
-    EVAL_CRITERION(c->samples, GLX_SAMPLES);
-    EVAL_CRITERION(c->auxBuffers, GLX_AUX_BUFFERS);
-    EVAL_CRITERION(c->buffer, GLX_BUFFER_SIZE);
+    /* Hard filter: keep only configs that satisfy every criterion. */
+    for (i = 0; i < fbconfigArraySize; i++)
+    {
+        fghReadConfigCapabilities(dpy, fbconfigArray[i], values[i]);
+        if (fghCriteriaPass(c, values[i]))
+            matches[matchCount++] = i;
+    }
 
-    #undef EVAL_CRITERION
+    if (matchCount == 0)
+    {
+        free(values);
+        free(matches);
+        return -1;
+    }
 
-    return totalScore;
+    /* Rank matches in strict left-to-right criterion precedence. Stable
+     * insertion sort preserves the server's order as the final tie-break. */
+    for (i = 1; i < matchCount; i++)
+    {
+        int key = matches[i];
+        for (j = i - 1;
+             j >= 0 && fghCriteriaCompare(c, values[matches[j]], values[key]) > 0;
+             j--)
+            matches[j + 1] = matches[j];
+        matches[j + 1] = key;
+    }
+
+    /* "num" selects the Nth matching config in ranked order (0 = best). */
+    chosen = (c->num > 0 && c->num < matchCount) ? matches[c->num] : matches[0];
+
+    free(values);
+    free(matches);
+    return chosen;
 }
 
 /* Chooses a visual basing on the current display mode settings */
@@ -198,41 +188,20 @@ int fghChooseConfig(GLXFBConfig* fbconfig)
         {
             int result __fg_unused;  /* Returned by glXGetFBConfigAttrib, not checked. */
 
-            /* If glutInitDisplayString was used, score all configs and pick the best */
+            /* glutInitDisplayString was used: hard-filter then rank all
+             * configs by the criteria, honouring left-to-right precedence. */
             if (fgState.DisplayStrCriteria.haveDisplayString)
             {
-                int i, bestIndex = 0;
-                int bestScore = -1, currentScore;
+                int chosen = fghSelectConfigByCriteria(
+                    fgDisplay.pDisplay.Display, fbconfigArray, fbconfigArraySize );
 
-                for (i = 0; i < fbconfigArraySize; i++)
+                if (chosen < 0)
                 {
-                    currentScore = fghScoreConfig(fgDisplay.pDisplay.Display, fbconfigArray[i]);
-                    if (currentScore >= 0)  /* Config meets all criteria */
-                    {
-                        if (bestScore < 0 || currentScore > bestScore)
-                        {
-                            bestScore = currentScore;
-                            bestIndex = i;
-                        }
-                    }
-                }
-
-                if (bestScore >= 0)
-                {
-                    /* Apply the "num" criterion to select Nth matching config if specified */
-                    int targetIndex = fgState.DisplayStrCriteria.num;
-                    if (targetIndex > 0 && targetIndex < fbconfigArraySize)
-                        *fbconfig = fbconfigArray[targetIndex];
-                    else
-                        *fbconfig = fbconfigArray[bestIndex];
-                }
-                else
-                {
-                    /* No config meets the criteria */
                     *fbconfig = NULL;
                     XFree(fbconfigArray);
                     return 0;
                 }
+                *fbconfig = fbconfigArray[chosen];
             }
             else if( wantIndexedMode )
             {

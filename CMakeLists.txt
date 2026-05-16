@@ -120,6 +120,7 @@ SET(FREEGLUT_SRCS
     src/fg_callbacks.c
     src/fg_cursor.c
     src/fg_display.c
+    src/fg_display_string.c
     src/fg_ext.c
     src/fg_font_data.c
     src/fg_gamemode.c

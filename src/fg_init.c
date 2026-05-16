@@ -84,10 +84,7 @@ SFG_State fgState = { { -1, -1, GL_FALSE },  /* Position */
                       NULL,                   /* ErrorFuncData */
                       NULL,                   /* WarningFunc */
                       NULL,                   /* WarningFuncData */
-                      { {FG_NONE,0}, {FG_NONE,0}, {FG_NONE,0}, {FG_NONE,0}, /* DisplayStrCriteria: alpha, red, green, blue */
-                        {FG_NONE,0}, {FG_NONE,0}, {FG_NONE,0}, {FG_NONE,0}, /* depth, stencil, accumRed, accumGreen */
-                        {FG_NONE,0}, {FG_NONE,0}, {FG_NONE,0}, {FG_NONE,0}, /* accumBlue, accumAlpha, samples, auxBuffers */
-                        {FG_NONE,0}, 0, GL_FALSE }                           /* buffer, num, haveDisplayString */
+                      { { { FG_CAP_RED, { FG_NONE, 0 } } }, 0, 0, GL_FALSE } /* DisplayStrCriteria */
 };
 
 
@@ -307,17 +304,10 @@ void fgDeinitialize( void )
     fgState.Initialised = GL_FALSE;
 }
 
-/* Comparison to distinguish invalid criteria during parsing */
+/* parseCriteria() returns this when a comparator is present but malformed
+ * (e.g. "depth=" or "depth=16x"); fghAddCriterion() treats it as unspecified
+ * and substitutes the capability's documented default. */
 #define FG_INVALID ((FGCriterionComparison)(-1))
-
-/* Helper function to create a criterion (for MSVC compatibility) */
-static FGCriterion fghMakeCriterion(FGCriterionComparison comparison, int value)
-{
-    FGCriterion c;
-    c.comparison = comparison;
-    c.value = value;
-    return c;
-}
 
 /* Parse a display string token and return a Criterion struct.
  * Based on the original GLUT implementation:
@@ -499,6 +489,11 @@ void FGAPIENTRY glutInitDisplayMode( unsigned int displayMode )
 {
     /* We will make use of this value when creating a new OpenGL context... */
     fgState.DisplayMode = displayMode;
+
+    /* glutInitDisplayMode supersedes any prior glutInitDisplayString: clear
+     * the parsed criteria so backends stop scoring against stale (possibly
+     * impossible) constraints. */
+    memset( &fgState.DisplayStrCriteria, 0, sizeof(FGDisplayStringCriteria) );
 }
 
 
@@ -512,21 +507,24 @@ static char* Tokens[] =
     "xstaticgray", "xgrayscale", "xstaticcolor", "xpseudocolor",
     "xtruecolor", "xdirectcolor",
     "xstaticgrey", "xgreyscale", "xstaticcolour", "xpseudocolour",
-    "xtruecolour", "xdirectcolour", "borderless", "aux", "auxbufs"
+    "xtruecolour", "xdirectcolour", "borderless", "aux", "auxbufs",
+    "srgb", "captionless"
 };
 #define NUM_TOKENS             (sizeof(Tokens) / sizeof(*Tokens))
 
 void FGAPIENTRY glutInitDisplayString( const char* displayMode )
 {
-    FGCriterion criteria;
+    FGDisplayStringCriteria *dsc = &fgState.DisplayStrCriteria;
+    FGCriterion parsed;
     unsigned int glut_state_flag = 0;
     char *token;
     size_t len = strlen( displayMode );
     char *buffer = (char *)malloc( (len+1) * sizeof(char) );
 
-    /* Initialize display string criteria with defaults */
-    memset( &fgState.DisplayStrCriteria, 0, sizeof(FGDisplayStringCriteria) );
-    fgState.DisplayStrCriteria.haveDisplayString = GL_TRUE;
+    /* Start from an empty, ordered criteria list. Entry order mirrors the
+     * display-string left-to-right order, which defines matching precedence. */
+    memset( dsc, 0, sizeof(FGDisplayStringCriteria) );
+    dsc->haveDisplayString = GL_TRUE;
 
     /* Unpack options from the display string delimited by blanks or tabs */
     memcpy( buffer, displayMode, len );
@@ -544,187 +542,159 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
             if ( strncmp( token, Tokens[i], cleanlength ) == 0 ) break;
         }
 
+        parsed = parseCriteria( token );
+
         switch ( i )
         {
-        case 0:  /* "alpha":  Alpha color buffer precision in bits. Default >=1 */
+        case 0:  /* "alpha":  Alpha color buffer precision. Default >=1 */
             glut_state_flag |= GLUT_ALPHA;
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.alpha = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
+            fghAddCriterion( dsc, FG_CAP_ALPHA, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 1:  /* "acca":  Red, green, blue, and alpha accumulation buffer precision. Default >=1 */
+        case 1:  /* "acca":  RGBA accumulation buffer precision. Default >=1 each */
             glut_state_flag |= GLUT_ACCUM;
-            criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
-            fgState.DisplayStrCriteria.accumRed = criteria;
-            fgState.DisplayStrCriteria.accumGreen = criteria;
-            fgState.DisplayStrCriteria.accumBlue = criteria;
-            fgState.DisplayStrCriteria.accumAlpha = criteria;
+            fghAddCriterion( dsc, FG_CAP_ACCUM_RED,   parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_GREEN, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_BLUE,  parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_ALPHA, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 2:  /* "acc":  Red, green, blue accumulation buffer with zero alpha. Default >=1 for RGB, ~0 for alpha */
+        case 2:  /* "acc":  RGB accumulation, zero alpha. Default >=1 RGB, ~0 alpha */
             glut_state_flag |= GLUT_ACCUM;
-            criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
-            fgState.DisplayStrCriteria.accumRed = criteria;
-            fgState.DisplayStrCriteria.accumGreen = criteria;
-            fgState.DisplayStrCriteria.accumBlue = criteria;
-            fgState.DisplayStrCriteria.accumAlpha = fghMakeCriterion(FG_MIN, 0);
+            fghAddCriterion( dsc, FG_CAP_ACCUM_RED,   parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_GREEN, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_BLUE,  parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_ALPHA,
+                             fghMakeCriterion(FG_UNSPECIFIED, 0), fghMakeCriterion(FG_MIN, 0) );
             break;
 
-        case 3:  /* "blue":  Blue color buffer precision in bits. Default >=1 */
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.blue = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
+        case 3:  /* "blue":  Blue color buffer precision. Default >=1 */
+            fghAddCriterion( dsc, FG_CAP_BLUE, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 4:  /* "buffer":  Number of bits in the color index color buffer. Default >=1 */
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.buffer = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
+        case 4:  /* "buffer":  Color (index) buffer bits. Default >=1 */
+            fghAddCriterion( dsc, FG_CAP_BUFFER, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 5:  /* "conformant":  Boolean indicating conformance. Default =1 */
-            /* Not currently stored in criteria */
+        case 5:  /* "conformant":  Not modeled by freeglut */
             break;
 
-        case 6:  /* "depth":  Depth buffer precision in bits. Default >=12 */
+        case 6:  /* "depth":  Depth buffer precision. Default >=12 */
             glut_state_flag |= GLUT_DEPTH;
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.depth = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 12);
+            fghAddCriterion( dsc, FG_CAP_DEPTH, parsed, fghMakeCriterion(FG_GTE, 12) );
             break;
 
-        case 7:  /* "double":  Boolean indicating double buffering. Default =1 */
+        case 7:  /* "double":  Double buffering */
             glut_state_flag |= GLUT_DOUBLE;
             break;
 
-        case 8:  /* "green":  Green color buffer precision in bits. Default >=1 */
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.green = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
+        case 8:  /* "green":  Green color buffer precision. Default >=1 */
+            fghAddCriterion( dsc, FG_CAP_GREEN, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 9:  /* "index":  Boolean if color model is color index. Default >=1 */
+        case 9:  /* "index":  Color index model. Default buffer >=1 */
             glut_state_flag |= GLUT_INDEX;
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.buffer = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
+            fghAddCriterion( dsc, FG_CAP_BUFFER, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 10:  /* "num":  Nth frame buffer configuration matching description */
-            criteria = parseCriteria( token );
-            if (criteria.comparison == FG_EQ && criteria.value >= 0) {
-                fgState.DisplayStrCriteria.num = criteria.value;
-            }
+        case 10:  /* "num":  Select Nth matching configuration */
+            if ( parsed.comparison == FG_EQ && parsed.value >= 0 )
+                dsc->num = parsed.value;
             break;
 
-        case 11:  /* "red":  Red color buffer precision in bits. Default >=1 */
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.red = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
+        case 11:  /* "red":  Red color buffer precision. Default >=1 */
+            fghAddCriterion( dsc, FG_CAP_RED, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 12:  /* "rgba":  RGBA color buffer precision. Default >=1 for all channels */
+        case 12:  /* "rgba":  RGBA precision. Default >=1 each channel */
             glut_state_flag |= GLUT_RGBA;
-            criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
-            fgState.DisplayStrCriteria.red = criteria;
-            fgState.DisplayStrCriteria.green = criteria;
-            fgState.DisplayStrCriteria.blue = criteria;
-            fgState.DisplayStrCriteria.alpha = criteria;
+            fghAddCriterion( dsc, FG_CAP_RED,   parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_GREEN, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_BLUE,  parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ALPHA, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 13:  /* "rgb":  RGB color buffer with zero alpha. Default >=1 for RGB, ~0 for alpha */
+        case 13:  /* "rgb":  RGB precision, zero alpha. Default >=1 RGB, ~0 alpha */
             glut_state_flag |= GLUT_RGB;
-            criteria = parseCriteria( token );
-            if (criteria.comparison == FG_INVALID) criteria = fghMakeCriterion(FG_GTE, 1);
-            fgState.DisplayStrCriteria.red = criteria;
-            fgState.DisplayStrCriteria.green = criteria;
-            fgState.DisplayStrCriteria.blue = criteria;
-            fgState.DisplayStrCriteria.alpha = fghMakeCriterion(FG_MIN, 0);
+            fghAddCriterion( dsc, FG_CAP_RED,   parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_GREEN, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_BLUE,  parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ALPHA,
+                             fghMakeCriterion(FG_UNSPECIFIED, 0), fghMakeCriterion(FG_MIN, 0) );
             break;
 
-        case 14:  /* "luminance":  Red channel for luminance, zero green/blue. Default >=1 for red, =0 for green/blue */
+        case 14:  /* "luminance":  Red only. Default red >=1, green/blue =0 */
             glut_state_flag |= GLUT_LUMINANCE;
-            criteria = parseCriteria( token );
-            fgState.DisplayStrCriteria.red = (criteria.comparison != FG_INVALID) ? criteria : fghMakeCriterion(FG_GTE, 1);
-            fgState.DisplayStrCriteria.green = fghMakeCriterion(FG_EQ, 0);
-            fgState.DisplayStrCriteria.blue = fghMakeCriterion(FG_EQ, 0);
+            fghAddCriterion( dsc, FG_CAP_RED,   parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_GREEN, fghMakeCriterion(FG_EQ, 0), fghMakeCriterion(FG_EQ, 0) );
+            fghAddCriterion( dsc, FG_CAP_BLUE,  fghMakeCriterion(FG_EQ, 0), fghMakeCriterion(FG_EQ, 0) );
             break;
 
-        case 15:  /* "stencil":  Stencil buffer bits. No default specified in man page */
+        case 15:  /* "stencil":  Stencil bits. Presence implies >=1 */
             glut_state_flag |= GLUT_STENCIL;
-            criteria = parseCriteria( token );
-            if (criteria.comparison != FG_INVALID) {
-                fgState.DisplayStrCriteria.stencil = criteria;
-            }
+            fghAddCriterion( dsc, FG_CAP_STENCIL, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 16:  /* "single":  Boolean single buffered. Double buffer =1 */
+        case 16:  /* "single":  Single buffered */
             glut_state_flag |= GLUT_SINGLE;
             break;
 
-        case 17:  /* "stereo":  Boolean stereo. Default =1 */
+        case 17:  /* "stereo":  Stereo color buffer */
             glut_state_flag |= GLUT_STEREO;
             break;
 
         case 18:  /* "samples":  Multisample count. Default <=4 */
             glut_state_flag |= GLUT_MULTISAMPLE;
-            criteria = parseCriteria( token );
-            if (criteria.comparison != FG_INVALID) {
-                fgState.DisplayStrCriteria.samples = criteria;
-                if (criteria.comparison == FG_EQ || criteria.comparison == FG_NONE) {
-                    fgState.SampleNumber = (criteria.comparison == FG_NONE) ? 4 : criteria.value;
-                }
-            } else {
-                fgState.DisplayStrCriteria.samples = fghMakeCriterion(FG_LTE, 4);
-                fgState.SampleNumber = 4;
-            }
+            fghAddCriterion( dsc, FG_CAP_SAMPLES, parsed, fghMakeCriterion(FG_LTE, 4) );
+            /* Seed the coarse GLX/Cocoa pre-filter; final selection is by the
+             * criteria list. Only an exact request constrains the pre-filter. */
+            fgState.SampleNumber = ( parsed.comparison == FG_EQ ) ? parsed.value : 0;
             break;
 
-        case 19:  /* "slow":  Boolean slow configuration. Default >=0 */
-            /* Not currently stored in criteria */
+        case 19:  /* "slow":  Not modeled by freeglut */
             break;
 
-        case 20:  /* "win32pdf": incorrect spelling */
-        case 21:  /* "win32pfd":  Win32 Pixel Format Descriptor by number */
-            /* Platform-specific, not stored in generic criteria */
+        case 20:  /* "win32pdf": misspelling, kept for compatibility */
+        case 21:  /* "win32pfd":  Win32-only, not modeled */
             break;
 
-        case 22:  /* "xvisual":  X visual ID by number */
-            /* Platform-specific, not stored in generic criteria */
+        case 22:  /* "xvisual":  X11-only, not modeled */
             break;
 
-        case 23:  /* "xstaticgray": */
-        case 29:  /* "xstaticgrey":  StaticGray X visual */
-        case 24:  /* "xgrayscale": */
-        case 30:  /* "xgreyscale":  GrayScale X visual */
-        case 25:  /* "xstaticcolor": */
-        case 31:  /* "xstaticcolour":  StaticColor X visual */
-        case 26:  /* "xpseudocolor": */
-        case 32:  /* "xpseudocolour":  PseudoColor X visual */
-        case 27:  /* "xtruecolor": */
-        case 33:  /* "xtruecolour":  TrueColor X visual */
-        case 28:  /* "xdirectcolor": */
-        case 34:  /* "xdirectcolour":  DirectColor X visual */
-            /* Platform-specific X11 visuals, not stored in generic criteria */
+        case 23:  /* "xstaticgray" */
+        case 29:  /* "xstaticgrey" */
+        case 24:  /* "xgrayscale" */
+        case 30:  /* "xgreyscale" */
+        case 25:  /* "xstaticcolor" */
+        case 31:  /* "xstaticcolour" */
+        case 26:  /* "xpseudocolor" */
+        case 32:  /* "xpseudocolour" */
+        case 27:  /* "xtruecolor" */
+        case 33:  /* "xtruecolour" */
+        case 28:  /* "xdirectcolor" */
+        case 34:  /* "xdirectcolour":  X11-only, not modeled */
             break;
 
-        case 35:  /* "borderless":  Windows without borders */
+        case 35:  /* "borderless":  Window without borders */
             glut_state_flag |= GLUT_BORDERLESS;
             break;
 
         case 36:  /* "aux" */
-        case 37:  /* "auxbufs":  Auxiliary buffers count. No default unless specified */
+        case 37:  /* "auxbufs":  Auxiliary buffers. Presence implies >=1 */
             glut_state_flag |= GLUT_AUX;
-            criteria = parseCriteria( token );
-            if (criteria.comparison != FG_INVALID) {
-                fgState.DisplayStrCriteria.auxBuffers = criteria;
-                if (criteria.comparison == FG_EQ || criteria.comparison == FG_NONE) {
-                    fgState.AuxiliaryBufferNumber = (criteria.comparison == FG_NONE) ? 1 : criteria.value;
-                }
-            } else {
-                fgState.DisplayStrCriteria.auxBuffers = fghMakeCriterion(FG_NONE, 1);
-                fgState.AuxiliaryBufferNumber = 1;
-            }
+            fghAddCriterion( dsc, FG_CAP_AUX, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fgState.AuxiliaryBufferNumber = ( parsed.comparison == FG_EQ ) ? parsed.value : 1;
             break;
 
-        case 38:  /* Unrecognized */
+        case 38:  /* "srgb":  sRGB-capable framebuffer (freeglut extension) */
+            glut_state_flag |= GLUT_SRGB;
+            break;
+
+        case 39:  /* "captionless":  Window without a caption (freeglut extension) */
+            glut_state_flag |= GLUT_CAPTIONLESS;
+            break;
+
+        case 40:  /* Unrecognized */
             fgWarning( "Display string token not recognized: %s", token );
             break;
         }
@@ -820,130 +790,4 @@ void FGAPIENTRY glutInitWarningFunc( FGWarning callback )
     }
 }
 
-/* -- DISPLAY STRING TESTING ------------------------------------------------ */
-
-#ifdef FREEGLUT_TEST_DISPLAY_STRING
-
-#include <stdio.h>
-
-static const char* comparisonName(FGCriterionComparison comp)
-{
-    switch(comp) {
-        case FG_NONE: return "NONE";
-        case FG_EQ:   return "=";
-        case FG_NEQ:  return "!=";
-        case FG_LT:   return "<";
-        case FG_GT:   return ">";
-        case FG_LTE:  return "<=";
-        case FG_GTE:  return ">=";
-        case FG_MIN:  return "~";
-        default:      return "INVALID";
-    }
-}
-
-static void printCriterion(const char* name, FGCriterion crit)
-{
-    if (crit.comparison != FG_NONE) {
-        printf("  %-12s: %s %d\n", name, comparisonName(crit.comparison), crit.value);
-    }
-}
-
-static void dumpDisplayStringCriteria(const char* testName, const char* displayString)
-{
-    FGDisplayStringCriteria *c;
-
-    printf("\n=== Test: %s ===\n", testName);
-    printf("Input: \"%s\"\n", displayString);
-
-    glutInitDisplayString(displayString);
-    c = &fgState.DisplayStrCriteria;
-
-    printf("Parsed criteria:\n");
-    printCriterion("alpha", c->alpha);
-    printCriterion("red", c->red);
-    printCriterion("green", c->green);
-    printCriterion("blue", c->blue);
-    printCriterion("depth", c->depth);
-    printCriterion("stencil", c->stencil);
-    printCriterion("accumRed", c->accumRed);
-    printCriterion("accumGreen", c->accumGreen);
-    printCriterion("accumBlue", c->accumBlue);
-    printCriterion("accumAlpha", c->accumAlpha);
-    printCriterion("samples", c->samples);
-    printCriterion("auxBuffers", c->auxBuffers);
-    printCriterion("buffer", c->buffer);
-
-    if (c->num != 0) {
-        printf("  num         : %d\n", c->num);
-    }
-
-    printf("DisplayMode flags: 0x%08x\n", fgState.DisplayMode);
-}
-
-int main(int argc, char** argv)
-{
-    /* Initialize minimal state */
-    fgState.Initialised = GL_TRUE;
-
-    printf("Testing glutInitDisplayString comparator parsing\n");
-    printf("=================================================\n");
-
-    /* Test 1: Equal comparator */
-    dumpDisplayStringCriteria("Equal comparator",
-                              "depth=16 samples=4");
-
-    /* Test 2: Greater-than-or-equal comparator */
-    dumpDisplayStringCriteria("GTE comparator",
-                              "red>=8 green>=8 blue>=8 depth>=24");
-
-    /* Test 3: MIN (~) comparator */
-    dumpDisplayStringCriteria("MIN comparator",
-                              "stencil~8 auxbufs~2");
-
-    /* Test 4: Less-than comparator */
-    dumpDisplayStringCriteria("Less-than comparator",
-                              "samples<8");
-
-    /* Test 5: Greater-than comparator */
-    dumpDisplayStringCriteria("Greater-than comparator",
-                              "depth>16");
-
-    /* Test 6: Less-than-or-equal comparator */
-    dumpDisplayStringCriteria("LTE comparator",
-                              "samples<=4");
-
-    /* Test 7: Not-equal comparator */
-    dumpDisplayStringCriteria("Not-equal comparator",
-                              "depth!=16");
-
-    /* Test 8: Complex example from man page */
-    dumpDisplayStringCriteria("Man page example",
-                              "stencil~2 rgb double depth>=16 samples");
-
-    /* Test 9: Hex and octal values */
-    dumpDisplayStringCriteria("Hex/octal values",
-                              "depth=0x10 stencil=010");
-
-    /* Test 10: Default values without comparators */
-    dumpDisplayStringCriteria("Defaults",
-                              "alpha red green blue depth");
-
-    /* Test 11: rgb vs rgba */
-    dumpDisplayStringCriteria("RGB (no alpha)",
-                              "rgb");
-
-    dumpDisplayStringCriteria("RGBA (with alpha)",
-                              "rgba");
-
-    /* Test 12: Accumulation buffers */
-    dumpDisplayStringCriteria("Accumulation (acc)",
-                              "acc");
-
-    dumpDisplayStringCriteria("Accumulation (acca)",
-                              "acca");
-
-    printf("\n=== All tests complete ===\n");
-    return 0;
-}
-
-#endif /* FREEGLUT_TEST_DISPLAY_STRING */
+/* glutInitDisplayString parsing is exercised by progs/demos/dstrprobe. */

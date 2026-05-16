@@ -246,6 +246,32 @@ capability description is provided, fast frame buffer configurations
 will be choosen in preference to slow frame buffer configurations, but
 slow frame buffer configurations will still be choosen if no better
 fast frame buffer configuration is available.
+.LP
+freeglut implements the strict left-to-right precedence described above:
+when several frame buffer configurations satisfy every criterion, they are
+ranked by comparing the criteria in the order they appear in the string, so
+the leftmost non-exact criterion dominates.
+.SH FREEGLUT EXTENSIONS
+In addition to the capability names above, freeglut accepts the following
+capability names that are not part of the original GLUT specification:
+.TP 8
+.B srgb
+Request an sRGB-capable frame buffer.  Equivalent to the GLUT_SRGB display
+mode bit.  On macOS the default frame buffer is always sRGB-capable, so this
+is accepted unconditionally; the application still enables sRGB encoding with
+glEnable(GL_FRAMEBUFFER_SRGB).
+.TP 8
+.B borderless
+The window should not have a border.  Equivalent to GLUT_BORDERLESS.
+.TP 8
+.B captionless
+The window should not have a caption.  Equivalent to GLUT_CAPTIONLESS.
+.TP 8
+.B aux
+.TP 8
+.B auxbufs
+Number of auxiliary color buffers.  Equivalent to GLUT_AUX.  Presence of
+the bare token requests at least one auxiliary buffer.
 .SH EXAMPLE
 Here is an examples using glutInitDisplayString:
 .nf

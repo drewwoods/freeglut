@@ -27,18 +27,32 @@
 
 enum { FG_COCOA_MAX_PIXEL_FORMAT_ATTRS = 128 };
 
-static FGCriterion fghMakeCriterion( FGCriterionComparison comparison, int value )
+/* NSOpenGLPixelFormat has no enumeration API; it returns one closest format.
+ * For building that request we need a single criterion per capability, so we
+ * start from the documented defaults and let display-string entries override
+ * (last occurrence wins). The authoritative accept/reject test remains
+ * fghCriteriaPass() over the full ordered entry list. */
+static void fghCocoaEffectiveCriteria( FGCriterion *eff )
 {
-    FGCriterion criterion;
+    const FGDisplayStringCriteria *c = &fgState.DisplayStrCriteria;
+    int i;
 
-    criterion.comparison = comparison;
-    criterion.value      = value;
-    return criterion;
-}
+    eff[FG_CAP_RED]         = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_GREEN]       = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_BLUE]        = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_ALPHA]       = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_DEPTH]       = fghMakeCriterion( FG_GTE, 12 );
+    eff[FG_CAP_STENCIL]     = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_ACCUM_RED]   = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_ACCUM_GREEN] = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_ACCUM_BLUE]  = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_ACCUM_ALPHA] = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_SAMPLES]     = fghMakeCriterion( FG_LTE, 4 );
+    eff[FG_CAP_AUX]         = fghMakeCriterion( FG_GTE, 1 );
+    eff[FG_CAP_BUFFER]      = fghMakeCriterion( FG_GTE, 1 );
 
-static FGCriterion fghResolveCriterion( FGCriterion criterion, FGCriterion defaultCriterion )
-{
-    return criterion.comparison == FG_UNSPECIFIED ? defaultCriterion : criterion;
+    for ( i = 0; i < c->count; i++ )
+        eff[ c->entries[i].capability ] = c->entries[i].criterion;
 }
 
 static GLboolean fghCocoaUsesUnsupportedPixelMode( void )
@@ -88,20 +102,25 @@ static int fghWeightForCriterion( FGCriterion criterion, int minWeight, int maxW
 
 static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
 {
-    FGDisplayStringCriteria *c = &fgState.DisplayStrCriteria;
-    int                      n = 0;
-    FGCriterion              red = fghResolveCriterion( c->red, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              green = fghResolveCriterion( c->green, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              blue = fghResolveCriterion( c->blue, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              alpha = fghResolveCriterion( c->alpha, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumRed = fghResolveCriterion( c->accumRed, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumGreen = fghResolveCriterion( c->accumGreen, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumBlue = fghResolveCriterion( c->accumBlue, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumAlpha = fghResolveCriterion( c->accumAlpha, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              depth = fghResolveCriterion( c->depth, fghMakeCriterion( FG_GTE, 12 ) );
-    FGCriterion              stencil    = fghResolveCriterion( c->stencil, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              auxBuffers = fghResolveCriterion( c->auxBuffers, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              samples = fghResolveCriterion( c->samples, fghMakeCriterion( FG_LTE, 4 ) );
+    FGCriterion eff[FG_CAP_COUNT];
+    int         n = 0;
+    FGCriterion red, green, blue, alpha;
+    FGCriterion accumRed, accumGreen, accumBlue, accumAlpha;
+    FGCriterion depth, stencil, auxBuffers, samples;
+
+    fghCocoaEffectiveCriteria( eff );
+    red        = eff[FG_CAP_RED];
+    green      = eff[FG_CAP_GREEN];
+    blue       = eff[FG_CAP_BLUE];
+    alpha      = eff[FG_CAP_ALPHA];
+    accumRed   = eff[FG_CAP_ACCUM_RED];
+    accumGreen = eff[FG_CAP_ACCUM_GREEN];
+    accumBlue  = eff[FG_CAP_ACCUM_BLUE];
+    accumAlpha = eff[FG_CAP_ACCUM_ALPHA];
+    depth      = eff[FG_CAP_DEPTH];
+    stencil    = eff[FG_CAP_STENCIL];
+    auxBuffers = eff[FG_CAP_AUX];
+    samples    = eff[FG_CAP_SAMPLES];
 
     attrs[n++] = NSOpenGLPFAAccelerated;
     attrs[n++] = NSOpenGLPFAClosestPolicy;
@@ -242,86 +261,38 @@ static int fghGetPixelFormatValue( NSOpenGLPixelFormat *pixelFormat, NSOpenGLPix
     return value;
 }
 
-static GLboolean fghEvaluateCriterion( FGCriterion criterion, int actualValue )
-{
-    switch ( criterion.comparison ) {
-    case FG_NONE:
-        return GL_TRUE;
-    case FG_EQ:
-        return actualValue == criterion.value;
-    case FG_NEQ:
-        return actualValue != criterion.value;
-    case FG_LT:
-        return actualValue < criterion.value;
-    case FG_GT:
-        return actualValue > criterion.value;
-    case FG_LTE:
-        return actualValue <= criterion.value;
-    case FG_GTE:
-        return actualValue >= criterion.value;
-    case FG_MIN:
-        return actualValue >= criterion.value;
-    case FG_UNSPECIFIED:
-        return actualValue > 0;
-    default:
-        return GL_FALSE;
-    }
-}
-
 static GLboolean fghPixelFormatMatchesDisplayString( NSOpenGLPixelFormat *pixelFormat )
 {
-    FGDisplayStringCriteria *criteria = &fgState.DisplayStrCriteria;
-    FGCriterion              red = fghResolveCriterion( criteria->red, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              green = fghResolveCriterion( criteria->green, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              blue = fghResolveCriterion( criteria->blue, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              alpha = fghResolveCriterion( criteria->alpha, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumRed = fghResolveCriterion( criteria->accumRed, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumGreen = fghResolveCriterion( criteria->accumGreen, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumBlue = fghResolveCriterion( criteria->accumBlue, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              accumAlpha = fghResolveCriterion( criteria->accumAlpha, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              depth = fghResolveCriterion( criteria->depth, fghMakeCriterion( FG_GTE, 12 ) );
-    FGCriterion              auxBuffersCriterion = fghResolveCriterion( criteria->auxBuffers, fghMakeCriterion( FG_GTE, 1 ) );
-    FGCriterion              samplesCriterion = fghResolveCriterion( criteria->samples, fghMakeCriterion( FG_LTE, 4 ) );
-    int colorSize                     = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAColorSize );
-    int alphaSize                     = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAAlphaSize );
-    int accumSize                     = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAAccumSize );
-    int depthSize                     = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFADepthSize );
-    int stencilSize                   = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAStencilSize );
-    int auxBuffers                    = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAAuxBuffers );
-    int samples                       = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFASamples );
-    int rgbColorSize                  = colorSize - alphaSize;
+    int values[FG_CAP_COUNT];
+    int colorSize    = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAColorSize );
+    int alphaSize    = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAAlphaSize );
+    int accumSize    = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAAccumSize );
+    int depthSize    = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFADepthSize );
+    int stencilSize  = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAStencilSize );
+    int auxBuffers   = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFAAuxBuffers );
+    int samples      = fghGetPixelFormatValue( pixelFormat, NSOpenGLPFASamples );
+    int rgbColorSize = colorSize - alphaSize;
 
+    /* NSOpenGLPFAColorSize sometimes includes alpha; recover the per-channel
+     * RGB size as best we can for the shared comparison. */
     if ( rgbColorSize < 0 )
         rgbColorSize = colorSize;
 
-    if ( !fghEvaluateCriterion( red, rgbColorSize / 3 ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( green, rgbColorSize / 3 ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( blue, rgbColorSize / 3 ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( alpha, alphaSize ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( depth, depthSize ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( criteria->stencil, stencilSize ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( accumRed, accumSize / 4 ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( accumGreen, accumSize / 4 ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( accumBlue, accumSize / 4 ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( accumAlpha, accumSize / 4 ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( samplesCriterion, samples ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( auxBuffersCriterion, auxBuffers ) )
-        return GL_FALSE;
-    if ( !fghEvaluateCriterion( criteria->buffer, colorSize + alphaSize ) )
-        return GL_FALSE;
+    values[FG_CAP_RED]         = rgbColorSize / 3;
+    values[FG_CAP_GREEN]       = rgbColorSize / 3;
+    values[FG_CAP_BLUE]        = rgbColorSize / 3;
+    values[FG_CAP_ALPHA]       = alphaSize;
+    values[FG_CAP_DEPTH]       = depthSize;
+    values[FG_CAP_STENCIL]     = stencilSize;
+    values[FG_CAP_ACCUM_RED]   = accumSize / 4;
+    values[FG_CAP_ACCUM_GREEN] = accumSize / 4;
+    values[FG_CAP_ACCUM_BLUE]  = accumSize / 4;
+    values[FG_CAP_ACCUM_ALPHA] = accumSize / 4;
+    values[FG_CAP_SAMPLES]     = samples;
+    values[FG_CAP_AUX]         = auxBuffers;
+    values[FG_CAP_BUFFER]      = colorSize + alphaSize;
 
-    return GL_TRUE;
+    return fghCriteriaPass( &fgState.DisplayStrCriteria, values );
 }
 
 static GLboolean fghPixelFormatMatchesRequestedFlags( NSOpenGLPixelFormat *pixelFormat )
