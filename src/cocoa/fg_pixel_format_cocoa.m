@@ -292,6 +292,11 @@ static GLboolean fghPixelFormatMatchesDisplayString( NSOpenGLPixelFormat *pixelF
     values[FG_CAP_AUX]         = auxBuffers;
     values[FG_CAP_BUFFER]      = colorSize + alphaSize;
 
+    /* Exact comparators ("=") must match exactly per the man page. macOS
+     * reports a fixed accumulation precision (32 bits/channel), so e.g.
+     * "acca=16" is genuinely impossible here while "acca~16" / "acca>=16"
+     * are satisfied -- this is the spec-correct behaviour and is enforced
+     * uniformly by the shared filter. */
     return fghCriteriaPass( &fgState.DisplayStrCriteria, values );
 }
 
