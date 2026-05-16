@@ -49,10 +49,8 @@ static GLboolean fghCocoaUsesUnsupportedPixelMode( void )
     if ( fgState.DisplayMode & GLUT_LUMINANCE )
         return GL_TRUE;
 
-#ifdef GLUT_SRGB
-    if ( fgState.DisplayMode & GLUT_SRGB )
-        return GL_TRUE;
-#endif
+    /* GLUT_SRGB is always satisfiable on macOS: the framebuffer is
+     * sRGB-capable and the app opts in with glEnable(GL_FRAMEBUFFER_SRGB). */
 
     return GL_FALSE;
 }
