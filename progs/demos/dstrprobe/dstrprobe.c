@@ -196,6 +196,22 @@ static int run_self_test( int summaryMode )
         { "auxbufs_eq_1", "auxbufs=1", -1, "Aux buffer availability varies widely by backend" },
         { "impossible_depth", "rgb depth>256", 0, "Strict impossible comparator case" },
         { "impossible_alpha", "rgba alpha>64", 0, "Strict impossible comparator case" },
+        { "bare_value_tokens", "rgb double depth", 1,
+            "Bare value tokens must resolve to documented defaults (regression: X11 treated unspecified criteria as a hard fail)" },
+        { "srgb_token", "rgb double depth>=16 srgb", -1,
+            "freeglut sRGB extension token; always available on macOS, GLX_ARB_framebuffer_sRGB dependent on X11 (regression: Cocoa once aborted on GLUT_SRGB)" },
+        { "captionless_token", "rgba depth captionless", -1,
+            "freeglut captionless extension token; window-decoration support is platform-dependent" },
+        { "acca_eq_16", "acca=16", -1,
+            "Exact accumulation precision: must match exactly, so impossible where the driver's accum size is fixed (e.g. 32-bit on macOS)" },
+        { "acca_min_16", "acca~16", -1,
+            "'~' means >=value preferring less: satisfied by any accum >= 16, including the fixed 32-bit accum on macOS" },
+        { "complex_acca_eq_combo",
+            "rgba double depth~24 samples=4 alpha acca=16 auxbufs~2 slow=0 buffer stencil", -1,
+            "Mixed comparators; the exact acca=16 makes this impossible on macOS (driver-fixed 32-bit accum) -- prefer acca~16 for a portable request" },
+        { "complex_acca_min_combo",
+            "rgba double depth~24 samples=4 alpha acca~16 auxbufs~2 slow=0 buffer stencil", -1,
+            "Portable form of the mixed-comparator combo using acca~16; satisfied wherever accum >= 16" },
     };
     int failures = 0;
     int i;
