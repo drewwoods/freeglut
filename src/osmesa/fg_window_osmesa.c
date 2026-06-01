@@ -101,17 +101,30 @@ void fgPlatformOpenWindow( SFG_Window *window, const char *title,
 void fgPlatformSetWindow( SFG_Window *window )
 {
     if( window && window->Window.Context )
+    {
+        /* Re-binding the already-current context is a no-op to OSMesa's API
+         * but still drives the Gallium state-tracker's framebuffer purge,
+         * which faults on swrast during teardown (fgDestroyWindow re-asserts
+         * the current window before closing it). Skip the redundant bind. */
+        if( OSMesaGetCurrentContext() == window->Window.Context )
+            return;
         OSMesaMakeCurrent( window->Window.Context,
                            window->Window.pContext.Buffer, GL_UNSIGNED_BYTE,
                            window->Window.pContext.Width,
                            window->Window.pContext.Height );
+    }
 }
 
 void fgPlatformCloseWindow( SFG_Window *window )
 {
     if( window->Window.Context )
     {
-        OSMesaDestroyContext( window->Window.Context );
+        /* During process exit the Gallium driver may already have finalized
+         * itself; calling OSMesaDestroyContext then jumps through a nulled
+         * vtable. Leak the context (reclaimed by the OS) rather than crash.
+         * See fghOSMesaProcessExiting in fg_internal_osmesa.h. */
+        if( !fghOSMesaProcessExiting )
+            OSMesaDestroyContext( window->Window.Context );
         window->Window.Context = NULL;
     }
     if( window->Window.pContext.Buffer )
