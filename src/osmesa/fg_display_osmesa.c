@@ -49,6 +49,9 @@ void fghOSMesaCaptureFrame( void )
 
     if( !ctx )
         return;
+    /* Ensure the frame is fully rendered before read-back (the Gallium OSMesa
+     * driver may defer until a flush); self-contained so callers need not. */
+    glFinish();
     if( !OSMesaGetColorBuffer( ctx, &w, &h, &fmt, &buffer ) || !buffer ||
         w <= 0 || h <= 0 )
         return;
@@ -95,40 +98,13 @@ void fghOSMesaCaptureFrame( void )
 void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr,
                                 SFG_Window *CurrentWindow )
 {
-    /* Single-buffered: there is nothing to swap. glFinish() so that a
-     * subsequent OSMesaGetColorBuffer()/glReadPixels() sees a complete frame. */
+    /* Single-buffered: there is nothing to swap. glFinish() so the front buffer
+     * is complete. NOTE: the generic glutSwapBuffers() early-returns for a
+     * single-buffered window, so this is effectively never reached on OSMesa --
+     * frame capture (SIGUSR1 + FREEGLUT_CAPTURE_FRAMES record mode) is therefore
+     * serviced from the main-loop tick (fgPlatformProcessSingleEvent), which is
+     * the per-frame hook a single-buffered backend actually has. */
     glFinish();
-
-    /* FREEGLUT_CAPTURE_FRAMES=N: deterministic record mode. Capture EVERY frame
-     * to a numbered PPM and exit(0) after N -- no signal, so no coalescing.
-     * Lets a headless run emit an exact-length frame sequence for offline
-     * GIF/MP4 assembly; each frame is a clean fixed timestep, so the sequence
-     * is reproducible across machines. Read once (cached). */
-    {
-        static int frame_limit = -1;     /* -1 = unread; 0 = disabled */
-        static int frame_count = 0;
-        if( frame_limit < 0 )
-        {
-            const char *e = getenv( "FREEGLUT_CAPTURE_FRAMES" );
-            frame_limit = ( e && *e ) ? atoi( e ) : 0;
-            if( frame_limit < 0 )
-                frame_limit = 0;
-        }
-        if( frame_limit > 0 )
-        {
-            fghOSMesaCaptureFrame();
-            if( ++frame_count >= frame_limit )
-                exit( 0 );
-        }
-    }
-
-    /* A pending SIGUSR1 capture request is serviced here -- on the main thread,
-     * after the frame is complete -- not in the async signal handler. */
-    if( fghOSMesaCaptureRequested )
-    {
-        fghOSMesaCaptureRequested = 0;
-        fghOSMesaCaptureFrame();
-    }
 }
 
 void fgPlatformInitSwapCtl( void )
