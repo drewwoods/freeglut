@@ -51,14 +51,9 @@ void FGAPIENTRY glutSwapBuffers( void )
     FREEGLUT_EXIT_IF_NO_WINDOW ( "glutSwapBuffers" );
 
     glFlush( );
-#if !defined(TARGET_HOST_OSMESA)
     if( ! fgStructure.CurrentWindow->Window.DoubleBuffered )
         return;
-#endif
-    /* OSMesa is single-buffered, but its fgPlatformGlutSwapBuffers is still the
-     * per-frame hook (glFinish + frame capture); reach it every glutSwapBuffers
-     * instead of early-returning on the single-buffer check above. The "swap"
-     * itself is a no-op there (one physical buffer pinned to GL_FRONT). */
+
     fgPlatformGlutSwapBuffers( &fgDisplay.pDisplay, fgStructure.CurrentWindow );
 
     /* GLUT_FPS env var support */
