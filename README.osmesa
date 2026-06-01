@@ -1,19 +1,5 @@
-freeglut — OSMesa (headless) backend and the standalone "glutshapes" library
-============================================================================
-
-This file documents two related, optional build configurations:
-
-  1. FREEGLUT_OSMESA       — a headless freeglut backend that renders with no
-                             window system at all (off-screen, via OSMesa).
-  2. FREEGLUT_BUILD_GLUTSHAPES — a standalone library of just freeglut's
-                             geometry + font drawing, with no windowing, for
-                             environments that already emulate GLUT windowing.
-
-They are independent CMake options and can be built separately or together.
-
-
-1. OSMesa backend (FREEGLUT_OSMESA)
------------------------------------
+freeglut — OSMesa (headless, off-screen) backend
+=================================================
 
 Normally freeglut creates the GL context through the platform's native window
 system (GLX/X11, WGL/Windows, NSOpenGL/Cocoa, EGL/GLES). The OSMesa backend
@@ -24,17 +10,29 @@ rendering, freeglut's glutSolid*/glutWire* shapes, and glRenderMode(GL_FEEDBACK)
 all work — which makes it ideal for headless CI (e.g. validating geometry or
 feedback output with no display).
 
-It is OS-agnostic (Linux, macOS, Windows) and is mutually exclusive with the
-FREEGLUT_GLES, FREEGLUT_WAYLAND and FREEGLUT_COCOA options (CMake errors out if
-they are combined).
+It is enabled with the CMake option FREEGLUT_OSMESA, is OS-agnostic (Linux,
+macOS, Windows), and is mutually exclusive with the FREEGLUT_GLES,
+FREEGLUT_WAYLAND and FREEGLUT_COCOA options (CMake errors out if they are
+combined).
 
-Dependencies (just OSMesa — the headless build does not use or link GLU, so
-libglu1-mesa-dev / GLU is NOT required):
+(If you only want freeglut's geometry/font drawing without any windowing — for
+an environment that already emulates GLUT windowing, such as Emscripten — see
+the separate standalone "glutshapes" library in README.glutshapes.)
+
+
+Dependencies
+------------
+
+Just OSMesa — the headless build does not use or link GLU, so libglu1-mesa-dev /
+GLU is NOT required:
   - Linux:   apt-get install libosmesa6-dev   (pulls llvmpipe)
   - macOS:   brew install mesa                 (provides libOSMesa + GL/osmesa.h)
   - Windows: a Mesa build providing osmesa.{h,lib/dll}
 
-Build:
+
+Build
+-----
+
     cmake -DFREEGLUT_OSMESA=ON -DFREEGLUT_GLES=OFF -B build-osmesa .
     cmake --build build-osmesa
 
@@ -44,7 +42,10 @@ display and checks read-back and GL_FEEDBACK capture:
 
     ./build-osmesa/bin/osmesa_selftest
 
-Notes / limitations:
+
+Notes / limitations
+-------------------
+
   - Single buffer only. GLUT_DOUBLE is accepted but downgraded to single-buffer
     (glutSwapBuffers is a no-op; the draw buffer is pinned to GL_FRONT).
   - The context is always a compatibility context; glutInitContextProfile with a
@@ -52,52 +53,8 @@ Notes / limitations:
   - GLUT_ACCUM, GLUT_MULTISAMPLE and GLUT_SRGB are best-effort/ignored on swrast.
   - No input devices, cursor, game mode, menus or window resizing
     (glutReshapeWindow does not reallocate the off-screen buffer).
-  - The general progs/ demos (which use GLU and assume a window) are not built
-    under FREEGLUT_OSMESA.
   - Read pixels back with OSMesaGetColorBuffer(); with the Gallium OSMesa driver
     the finished image is not guaranteed to be in your malloc'd pointer until a
     flush. OSMesa's default pixel origin is bottom-up (OSMESA_Y_UP=1).
-
-
-2. Standalone "glutshapes" library (FREEGLUT_BUILD_GLUTSHAPES)
--------------------------------------------------------------
-
-This builds *only* freeglut's geometry and font drawing — glutSolidTeapot,
-glutWireSphere, the rest of the solids, and glutStrokeString/glutBitmapString —
-into a self-contained static library (`glutshapes`) with NONE of freeglut's
-windowing, event loop, or context code. It is meant for environments that
-already provide the GLUT windowing API and a GL context themselves (notably
-Emscripten, optionally with gl4es for legacy GL on top of WebGL) and just want
-freeglut's shapes and fonts.
-
-    cmake -DFREEGLUT_BUILD_GLUTSHAPES=ON -B build .
-    cmake --build build --target glutshapes
-
-The shape and font entry points keep their normal glut* names (that is the
-product you link against); the handful of freeglut-internal support symbols the
-geometry needs are renamed to private fgshapes_* names so the library is
-self-contained and does not collide with — or accidentally bind to — a host
-that already implements the GLUT/GL support API.
-
-A consumer includes <GL/freeglut.h> for the shape/font prototypes and, for the
-few standalone hooks, <GL/glutshapes.h>:
-
-    void glutShapesSetProcAddressFunc(void *(*resolver)(const char *name));
-    void glutShapesSetGLVersion(int major);
-    void glutShapesInit(void);
-
-Draw paths and the GLES/WebGL caveat:
-  - By default the GL 1.1 fixed-function path is used (client vertex arrays for
-    the solids; glBitmap / immediate-mode glBegin for the fonts). This works on
-    desktop GL, on the OSMesa backend above, and on **gl4es** (which emulates
-    these legacy calls on top of GLES) — gl4es is therefore the natural
-    companion for using glutshapes in the browser.
-  - On a raw GLES2/WebGL context (no gl4es) only the GL 2.0 vertex-attrib path
-    is valid: build with -DFREEGLUT_GLES, call glutShapesSetGLVersion(2) (or
-    glutShapesInit after installing a resolver), bind a shader, and pass the
-    attribute locations via glutSetVertexAttribCoord3/Normal/TexCoord2. The
-    fixed-function fonts require gl4es in that case.
-
-When OSMesa is also enabled, a functional test `glutshapes_selftest` is built
-that drives glutshapes with a raw OSMesa context and no freeglut windowing
-linked, confirming the solids and stroke fonts render standalone.
+  - The general progs/ demos (which use GLU and assume a window) are not built
+    under FREEGLUT_OSMESA.
