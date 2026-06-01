@@ -44,19 +44,9 @@ void fgPlatformSwapInterval( int n )
 
 int fgPlatformExtSupported( const char *ext )
 {
-    const char *exts = (const char *)glGetString( GL_EXTENSIONS );
-    const char *p;
-    size_t len;
-
-    if( !ext || !exts )
-        return 0;
-
-    len = strlen( ext );
-    for( p = exts; ( p = strstr( p, ext ) ) != NULL; p += len )
-    {
-        if( ( p == exts || p[ -1 ] == ' ' ) &&
-            ( p[ len ] == ' ' || p[ len ] == '\0' ) )
-            return 1;
-    }
+    /* This is the window-system extension hook (the analogue of querying GLX or
+     * WGL extensions); OSMesa has no window system. GL extensions proper are
+     * queried by the generic glutExtensionSupported() before it falls back here,
+     * so there is nothing for this backend to report. */
     return 0;
 }
