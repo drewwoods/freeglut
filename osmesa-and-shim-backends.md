@@ -149,6 +149,29 @@ steps are needed:
 - **In `fgPlatformGlutGet`**: always report `GLUT_WINDOW_DOUBLEBUFFER`→0, so a query
   issued between `glutCreateWindow` and the first `InitWork` is still consistent.
 
+### GL header selection on macOS (must override — answers the reviewer's question: yes)
+
+`include/GL/freeglut_std.h:145-164` bootstraps the GL headers and, on `__APPLE__` (`:153`),
+pulls Apple's framework headers `<OpenGL/gl.h>`/`<OpenGL/glu.h>`. An OSMesa build must
+instead use Homebrew/Mesa's `<GL/gl.h>` — otherwise the backend's `<GL/osmesa.h>` (which
+transitively includes Mesa's `<GL/gl.h>`) and freeglut's Apple `<OpenGL/gl.h>` collide in
+one translation unit (duplicate GL type/enum definitions), and the geometry would be
+compiled against Apple headers while running on a Mesa context. Fix, mirroring the existing
+`FREEGLUT_GLES` header-bootstrap convention (`:149`):
+
+- **Guard the Apple branch:** change `:153` to `#elif defined(__APPLE__) && !defined(FREEGLUT_OSMESA)`,
+  so OSMesa falls through to the `<GL/gl.h>`/`<GL/glu.h>` branch (`:161-162`) on every OS.
+- **Add `-DFREEGLUT_OSMESA` to `PUBLIC_DEFINITIONS`** in the OSMesa CMake branch — exactly
+  as `FREEGLUT_GLES` adds `-DFREEGLUT_GLES` at `:376` — so freeglut's own sources **and**
+  downstream consumers (the self-test, gl-repl — both include `<GL/osmesa.h>`) select Mesa
+  headers consistently. This **public** `FREEGLUT_OSMESA` is distinct from the **internal**
+  `-DTARGET_HOST_OSMESA=1` (backend selection), mirroring the GLES split exactly
+  (`FREEGLUT_GLES` public ↔ `TARGET_HOST_*` internal).
+- **Include path + GLU:** put Mesa's `OSMESA_INCLUDE_DIRS` (from `pkg_check_modules`) on the
+  compile include path so `<GL/gl.h>`/`<GL/osmesa.h>` resolve to Homebrew Mesa; and since
+  this branch includes `<GL/glu.h>`, ensure GLU headers exist (Linux: `libglu1-mesa-dev`;
+  macOS: `brew install mesa-glu`).
+
 ### First-frame callback synthesis (the subtle part) — a **novel composition**, not one template
 
 A real WM delivers reshape/visibility as events; the null backend must post them or
@@ -201,10 +224,12 @@ sized). `glutPostRedisplay` then drives subsequent frames via `GLUT_DISPLAY_WORK
 2. **Platform branch FIRST** in the selection chain (currently `IF(WIN32)` at `:160`):
    make it `IF(FREEGLUT_OSMESA) … ELSEIF(WIN32) …` so it overrides the native platform on
    any OS. In that branch: `ADD_DEFINITIONS(-DTARGET_HOST_OSMESA=1)` (here, **not** at the
-   COCOA block — see #5), list the `src/osmesa/*` sources, `INCLUDE(FindPkgConfig)` (it is
-   otherwise included only inside the X11/Wayland block at `:446`), then
-   `pkg_check_modules(OSMESA osmesa)` (fallback `find_library(OSMESA OSMesa)`) and append to
-   `LIBS`. Because this branch is the first `IF` and OS-agnostic, it covers Windows too.
+   COCOA block — see #5) **and** `LIST(APPEND PUBLIC_DEFINITIONS -DFREEGLUT_OSMESA)` (the
+   public header-bootstrap define, see "GL header selection"), list the `src/osmesa/*`
+   sources, `INCLUDE(FindPkgConfig)` (it is otherwise included only inside the X11/Wayland
+   block at `:446`), then `pkg_check_modules(OSMESA osmesa)` (fallback `find_library(OSMESA
+   OSMesa)`), append `${OSMESA_LIBRARIES}` to `LIBS` and `${OSMESA_INCLUDE_DIRS}` to the
+   include path. Because this branch is the first `IF` and OS-agnostic, it covers Windows too.
 3. **Skip the desktop-GL/GLES find/link block** (`:375-441`) when OSMesa is on, and add
    `OR FREEGLUT_OSMESA` to the `NOT(...)` guard of the UNIX/X11 dep block (`:342`).
 4. **Demos need GLU** (`OPENGL_GLU_FOUND` FATAL at `:726`, and the glu.h FATAL at `:437`
@@ -380,6 +405,7 @@ the OSMesa use case.
 - **New (Phase 2):** `src/standalone/fg_glutshapes_shim.h`, `src/standalone/fg_glutshapes_shim.c`, `include/GL/glutshapes.h` (public standalone init/config API).
 - **Edited, additive:**
   - `src/fg_internal.h` — **three** guarded edits: append `&& !defined(TARGET_HOST_OSMESA)` to the auto-detect guard (`:39-40`), add the `TARGET_HOST_OSMESA` default-to-0 (`:78-112`), and the `#if TARGET_HOST_OSMESA` header include (`:194-215`). No union/struct arm changes — the platform types come from the included header.
+  - `include/GL/freeglut_std.h` — one guarded edit at `:153`: `#elif defined(__APPLE__) && !defined(FREEGLUT_OSMESA)`, so macOS OSMesa builds use Mesa `<GL/gl.h>` not Apple's framework headers.
   - `CMakeLists.txt` — `FREEGLUT_OSMESA` option + exclusivity guard (before `:149`), OS-agnostic first platform branch (sources + `-DTARGET_HOST_OSMESA=1` + FindPkgConfig + link), skip the desktop-GL find block, `FREEGLUT_BUILD_DEMOS OFF`, `LIBNAME glut_osmesa`; `FREEGLUT_BUILD_GLUTSHAPES` option + `glutshapes` target + install `glutshapes.h`.
   - `fg_geometry.c`, `fg_teapot.c`, `fg_gl2.c`, `fg_gl2.h`, `fg_font.c`, `fg_font_data.c`, `fg_stroke_roman.c`, `fg_stroke_mono_roman.c` — the one guarded-include swap each.
   - `README` — both options, deps, and the GLES2/gl4es caveat.
