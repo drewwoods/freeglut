@@ -60,7 +60,11 @@ new CMake option `FREEGLUT_OSMESA` → `-DTARGET_HOST_OSMESA=1` (OS-agnostic; **
 typedef struct tagSFG_PlatformDisplay SFG_PlatformDisplay;
 struct tagSFG_PlatformDisplay { int dummy; };          /* OSMesa has no "display" */
 typedef struct tagSFG_PlatformContext SFG_PlatformContext;
-struct tagSFG_PlatformContext { void *Buffer; GLsizei Width, Height; };  /* the fb */
+struct tagSFG_PlatformContext {        /* the framebuffer + the requested config, */
+    void   *Buffer; GLsizei Width, Height;        /* so the state backend can report */
+    GLint   DepthBits, StencilBits, AccumBits;    /* GLUT_WINDOW_*_SIZE per-window */
+    GLenum  Format;                               /* OSMESA_RGBA etc. */
+};
 typedef struct tagSFG_PlatformWindowState SFG_PlatformWindowState;
 struct tagSFG_PlatformWindowState { int dummy; };
 typedef struct tagSFG_PlatformJoystick SFG_PlatformJoystick;
@@ -72,17 +76,29 @@ typedef int           SFG_WindowColormapType;          /* dummy */
 ```
 
 The GL context handle lives in `window->Window.Context` (`OSMesaContext`); the
-framebuffer + size live in `window->Window.pContext` (accessed directly as
-`pContext.Buffer`, `pContext.Width/Height` — **no `.osmesa` member**).
+framebuffer, size, and requested bit-depths live in `window->Window.pContext` (accessed
+directly as `pContext.Buffer`, `pContext.Width/Height`, `pContext.DepthBits` … — **no
+`.osmesa` member**).
 
-The **only** edit to `src/fg_internal.h` is adding, in the platform-include block
-(`:194-215`):
+`src/fg_internal.h` needs **three** small additive edits (not one — OSMesa must suppress
+the native host auto-detection, or two platform headers get included):
 
-```c
-#if TARGET_HOST_OSMESA
-#include "osmesa/fg_internal_osmesa.h"
-#endif
-```
+1. **Suppress native auto-detect:** append `&& !defined(TARGET_HOST_OSMESA)` to the guard
+   at `:39-40` (the `#if !defined(TARGET_HOST_POSIX_X11) && … && !defined(TARGET_HOST_MACOS_COCOA)`
+   block). Otherwise, with `-DTARGET_HOST_OSMESA=1`, the `#elif defined(__APPLE__)` arm at
+   `:59-61` still sets `TARGET_HOST_POSIX_X11=1`, pulling in **both** `fg_internal_x11.h`
+   and `fg_internal_osmesa.h` → duplicate `SFG_PlatformContext` definitions.
+2. **Default the macro to 0:** add `#ifndef TARGET_HOST_OSMESA / #define TARGET_HOST_OSMESA 0 / #endif`
+   in the defaults block (`:78-112`).
+3. **Include the header:** in the platform-include block (`:194-215`):
+   ```c
+   #if TARGET_HOST_OSMESA
+   #include "osmesa/fg_internal_osmesa.h"
+   #endif
+   ```
+
+(The existing `#if TARGET_HOST_POSIX_X11`/`MS_WINDOWS` includes at `:198-203` then resolve
+to 0 and stay out — once edit #1 keeps the native macros unset.)
 
 ### Files to create — model the **whole** stub/main surface on `src/ogc/`
 
@@ -92,7 +108,7 @@ The **only** edit to `src/fg_internal.h` is adding, in the platform-include bloc
 | `src/osmesa/fg_init_osmesa.c` | `fgPlatformInitialize` (init time base, set `fgDisplay.ScreenWidth/Height` to a default virtual size, **no display open**), `fgPlatformCloseDisplay`, `fgPlatformDestroyContext`→`OSMesaDestroyContext(MContext)`, `fgPlatformDeinitialiseInputDevices` |
 | `src/osmesa/fg_window_osmesa.c` | `fghCreateNewContextOSMesa` (map `fgState.DisplayMode`→`OSMesaCreateContextExt`), `fgPlatformOpenWindow` (create ctx, `malloc(w*h*4)`, `OSMesaMakeCurrent`, **`glDrawBuffer/glReadBuffer(GL_FRONT)`**, set `window->State.Visible=GL_TRUE`), `fgPlatformCloseWindow` (free buffer, destroy ctx), `fgPlatformSetWindow` (re-`OSMesaMakeCurrent`), title setters (store/ignore) |
 | `src/osmesa/fg_display_osmesa.c` | `fgPlatformGlutSwapBuffers` (no-op; optional `glFinish`), `fgPlatformInitSwapCtl`/`fgPlatformSwapInterval` (no-ops), `fgPlatformExtSupported` (parse `GL_EXTENSIONS`) |
-| `src/osmesa/fg_state_osmesa.c` | `fgPlatformGlutGet` (answer `GLUT_WINDOW_WIDTH/HEIGHT`, `GLUT_WINDOW_RGBA`, `GLUT_WINDOW_DOUBLEBUFFER`=0, depth/stencil/accum bits from the stored config), `fgPlatformGlutGetModeValues`, **`fgPlatformGlutDeviceGet`** (called unconditionally at `fg_state.c:264` — ogc stubs it) |
+| `src/osmesa/fg_state_osmesa.c` | `fgPlatformGlutGet` (answer `GLUT_WINDOW_WIDTH/HEIGHT`, `GLUT_WINDOW_RGBA`, `GLUT_WINDOW_DOUBLEBUFFER`→**always 0**, `GLUT_WINDOW_{DEPTH,STENCIL,ACCUM_*}_SIZE` from `pContext.DepthBits/StencilBits/AccumBits`), `fgPlatformGlutGetModeValues`, **`fgPlatformGlutDeviceGet`** (called unconditionally at `fg_state.c:264` — ogc stubs it) |
 | `src/osmesa/fg_main_osmesa.c` | `fgPlatformProcessSingleEvent` (no-op), `fgPlatformMainLoopPreliminaryWork` (no-op), `fgPlatformSleepForEvents` (`nanosleep` ~1 ms, capped by the passed `msec`), `fgPlatformSystemTime` (`clock_gettime(CLOCK_MONOTONIC)`; macOS 10.12+), `fgPlatformInitWork`, `fgPlatformPosResZordWork` (warn-only), `fgPlatformVisibilityWork` (`INVOKE_WCB(WindowStatus, GLUT_FULLY_RETAINED)`), **`fgPlatformSetColor`/`fgPlatformGetColor`/`fgPlatformCopyColormap`** (called unconditionally at `fg_misc.c:169-181`; ogc stubs them in `fg_main_ogc.c:274-288`) |
 | `src/osmesa/fg_structure_osmesa.c` | `fgPlatformCreateWindow` (zero `pContext`) |
 | `src/osmesa/fg_ext_osmesa.c` | `fgPlatformGetProcAddress`→`OSMesaGetProcAddress`, `fgPlatformGetGLUTProcAddress` |
@@ -106,24 +122,34 @@ do **not** derive completeness from egl (it omits device-get and the colormap tr
 `fghCreateNewContextOSMesa` reads `fgState.DisplayMode` →
 `OSMesaCreateContextExt(OSMESA_RGBA, depthBits, stencilBits, accumBits, share)`:
 `GLUT_DEPTH`→24, `GLUT_STENCIL`→8, `GLUT_ACCUM`→16 (best-effort; llvmpipe usually lacks
-accum — document, gl-repl passes `--noaccum`), `GLUT_MULTISAMPLE`/`GLUT_INDEX`
-ignored/forced-RGBA. **Profile is intentionally forced to compatibility** —
+accum — document, gl-repl passes `--noaccum`), `GLUT_MULTISAMPLE`/`GLUT_INDEX`/`GLUT_AUX`
+ignored/forced-RGBA, **`GLUT_SRGB`** (bit `0x1000`, distinct from `GLUT_AUX` only since
+commit `a0120200`) treated as ignored/best-effort (swrast sRGB-framebuffer support is not
+guaranteed). **Profile is intentionally forced to compatibility** —
 `OSMesaCreateContextExt` yields a legacy context (which is exactly what makes
 `glRenderMode(GL_FEEDBACK)` + fixed-function solids work); a consumer's
 `glutInitContextProfile(GLUT_CORE_PROFILE)` is silently ignored. Document this as the
 contract, not a surprise.
 
-**GLUT_DOUBLE / draw buffer (must handle explicitly).** OSMesa has one physical buffer.
-After `OSMesaMakeCurrent`, `fgPlatformOpenWindow` calls `glDrawBuffer(GL_FRONT);
-glReadBuffer(GL_FRONT)` **unconditionally**, and the backend treats the window as
-single-buffered (`glutGet(GLUT_WINDOW_DOUBLEBUFFER)`→0, swap = no-op). This is required
-because the generic code (`fg_window.c:108-116`, active since OSMesa doesn't define
-`EGL_VERSION_1_0`) only redirects to `GL_FRONT` when it thinks the window is
-single-buffered; a consumer requesting `GLUT_DOUBLE` would otherwise leave the draw
-buffer at the default and readback could be empty. Document that `GLUT_DOUBLE` is
-downgraded to single-buffer.
+**GLUT_DOUBLE / draw buffer (must handle explicitly, across two timing points).** OSMesa
+has one physical buffer, so `GLUT_DOUBLE` is downgraded to single-buffer. The catch is
+ordering: `fgPlatformOpenWindow` runs at `fg_window.c:101`, **before** the generic code
+sets `window->Window.DoubleBuffered` from `fgState.DisplayMode` at `:108-110`; and
+`glutSwapBuffers` later branches on that flag at `fg_display.c:53-55`. So three coordinated
+steps are needed:
+- **In `fgPlatformOpenWindow`** (after `OSMesaMakeCurrent`): `glDrawBuffer(GL_FRONT);
+  glReadBuffer(GL_FRONT)` unconditionally → draw/read land in the malloc'd buffer
+  regardless of the flag (the generic `:112-116` GL_FRONT redirect fires only when it
+  already thinks single-buffered, so we cannot rely on it for a `GLUT_DOUBLE` request).
+- **In `fgPlatformInitWork`** (runs later, **after** the `:108` assignment): reset
+  `window->Window.DoubleBuffered = 0` so `glutSwapBuffers` short-circuits at
+  `fg_display.c:54` (osmesa swap is a no-op anyway). This is the "reset after the generic
+  assignment" route — no edit to shared `fg_window.c`. (A guarded one-line override at
+  `fg_window.c:108` is the equivalent alternative if a non-deferred value is preferred.)
+- **In `fgPlatformGlutGet`**: always report `GLUT_WINDOW_DOUBLEBUFFER`→0, so a query
+  issued between `glutCreateWindow` and the first `InitWork` is still consistent.
 
-### First-frame callback synthesis (the subtle part) — model: **ogc**, not android
+### First-frame callback synthesis (the subtle part) — a **novel composition**, not one template
 
 A real WM delivers reshape/visibility as events; the null backend must post them or
 `display` never fires. Verified generic flow: `fgOpenWindow()` sets
@@ -132,13 +158,15 @@ A real WM delivers reshape/visibility as events; the null backend must post them
 callback exists, then on `GLUT_DISPLAY_WORK` calls `fghRedrawWindow` **only if
 `window->State.Visible`** (`fg_main.c:407`).
 
-Idiom (resolves the earlier doc contradiction): **`State.Visible = GL_TRUE` is set in
-`fgPlatformOpenWindow`** (as every backend does, e.g. `ogc/fg_window_ogc.c`,
-`x11/fg_window_x11.c:433`), and **`fgPlatformInitWork` synthesizes
-position+reshape+status** (model `ogc/fg_main_ogc.c:257-262`, which calls
-`fghOnReshapeNotify`). Compose the sequence directly (Android's InitWork at
-`fg_main_android.c:491` is **not** a template — it omits reshape, deferring it to its
-event poll):
+No single backend is a drop-in template here, so the sequence is **composed** from
+several: **`State.Visible = GL_TRUE` is set in `fgPlatformOpenWindow`** (as every backend
+does it during window creation, e.g. `ogc/fg_window_ogc.c`, `x11/fg_window_x11.c:433`,
+`fg_window_cocoa.m`), and **`fgPlatformInitWork` synthesizes position+reshape+status** —
+taking the reshape call from `ogc/fg_main_ogc.c:257-262` and the *position+reshape pair*
+from `cocoa/fg_main_cocoa.m:110-119` (which calls both `fghOnPositionNotify` and
+`fghOnReshapeNotify`). Android's InitWork (`fg_main_android.c:491`) is explicitly **not**
+a template — it omits reshape **and** Visible, deferring both to its event poll. The
+composed sequence:
 
 ```c
 void fgPlatformInitWork(SFG_Window *window) {
@@ -162,23 +190,33 @@ sized). `glutPostRedisplay` then drives subsequent frames via `GLUT_DISPLAY_WORK
 
 ### CMake wiring (`CMakeLists.txt`)
 
-1. **Option** near `:87`: `OPTION(FREEGLUT_OSMESA "Headless off-screen Mesa backend" OFF)`.
+1. **Option + mutual-exclusivity guard** near `:87`: `OPTION(FREEGLUT_OSMESA "Headless
+   off-screen Mesa backend" OFF)`, immediately followed by
+   `IF(FREEGLUT_OSMESA AND (FREEGLUT_GLES OR FREEGLUT_WAYLAND OR FREEGLUT_COCOA))
+   MESSAGE(FATAL_ERROR "FREEGLUT_OSMESA is mutually exclusive with GLES/WAYLAND/COCOA")
+   ENDIF()`. This must sit **before** the source-list logic that those options mutate —
+   `FREEGLUT_GLES` swaps `fg_font.c`↔`gles_stubs.c` in the *common* list at `:149`, and
+   EGL/Wayland sources are appended at `:320` — so the guard aborts configuration before
+   any contaminated source list is built.
 2. **Platform branch FIRST** in the selection chain (currently `IF(WIN32)` at `:160`):
    make it `IF(FREEGLUT_OSMESA) … ELSEIF(WIN32) …` so it overrides the native platform on
-   any OS. List the `src/osmesa/*` sources there; in that branch
-   `INCLUDE(FindPkgConfig)` (it is otherwise included only inside the X11/Wayland block
-   at `:446`), then `pkg_check_modules(OSMESA osmesa)` (fallback `find_library(OSMESA
-   OSMesa)`) and append to `LIBS`.
+   any OS. In that branch: `ADD_DEFINITIONS(-DTARGET_HOST_OSMESA=1)` (here, **not** at the
+   COCOA block — see #5), list the `src/osmesa/*` sources, `INCLUDE(FindPkgConfig)` (it is
+   otherwise included only inside the X11/Wayland block at `:446`), then
+   `pkg_check_modules(OSMESA osmesa)` (fallback `find_library(OSMESA OSMesa)`) and append to
+   `LIBS`. Because this branch is the first `IF` and OS-agnostic, it covers Windows too.
 3. **Skip the desktop-GL/GLES find/link block** (`:375-441`) when OSMesa is on, and add
    `OR FREEGLUT_OSMESA` to the `NOT(...)` guard of the UNIX/X11 dep block (`:342`).
 4. **Demos need GLU** (`OPENGL_GLU_FOUND` FATAL at `:726`, and the glu.h FATAL at `:437`
    lives in the skipped block): under OSMesa **force `SET(FREEGLUT_BUILD_DEMOS OFF)`** and
    build the self-test below as its own target gated on `FREEGLUT_OSMESA` (linking the
    `freeglut` target + OSMesa) — don't try to satisfy the GLU-heavy `progs/` demos.
-5. **Define + lib name:** near the COCOA define block (`:651`) add `IF(FREEGLUT_OSMESA)
-   ADD_DEFINITIONS(-DTARGET_HOST_OSMESA=1)`. `LIBNAME` defaults to `freeglut` at `:600`
-   (then `glut` via REPLACE_GLUT at `:603`); override to `glut_osmesa` so a headless build
-   coexists with a normal freeglut.
+5. **Lib name:** `LIBNAME` defaults to `freeglut` at `:600` (then `glut` via REPLACE_GLUT
+   at `:603`); override to `glut_osmesa` so a headless build coexists with a normal
+   freeglut. Do this where the other `LIBNAME` overrides live. **Do not** put the
+   `-DTARGET_HOST_OSMESA=1` define at the COCOA block (`:652`) — that region is in a
+   non-Windows branch and Windows would miss the define; it goes in the first platform
+   branch (#2).
 
 ### Phase 1 verification
 
@@ -268,10 +306,13 @@ Plus a small TU `src/standalone/fg_glutshapes_shim.c` defining:
   crash.
 
 **Struct-drift safety:** the shim deliberately mirrors only the touched fields
-(`attribute_v_*`, `VisualizeNormals`, plus `StrokeFontDrawJoinDots` on `fgState`). If the
-geometry/font code is later changed to touch another field, the standalone build fails
-with a **compile error** (the named field is simply absent) — it cannot silently read
-garbage, since these are distinct named members, not an overlay of the real struct.
+(`attribute_v_*`, `VisualizeNormals`, plus `StrokeFontDrawJoinDots` on `fgState`).
+Grep-confirmed that the 8 geometry/font files reference **no** other `SFG_Window*`/
+`SFG_State` fields — in particular **not** `State.Width/Height` (so `SFG_WindowState` needs
+only `VisualizeNormals`/`Visible`). If the geometry/font code is later changed to touch
+another field, the standalone build fails with a **compile error** (the named field is
+simply absent) — it cannot silently read garbage, since these are distinct named members,
+not an overlay of the real struct.
 
 ### The only edit to shared geometry/font code
 
@@ -292,6 +333,25 @@ build. Public entry points (`glutSolidTeapot`, `glutStrokeString`,
 `glutSetVertexAttrib*`, `fgInitGL2`) keep their GLUT names (that is the exported product;
 emscripten does not implement the shapes). A consumer whose host *does* stub a shape
 resolves it by link order / by not also linking that host stub.
+
+### Standalone public API header
+
+The shape/font entry points themselves (`glutSolidTeapot`, `glutStrokeString`,
+`glutSetVertexAttribCoord3`, …) are already declared in the installed `<GL/freeglut.h>` /
+`freeglut_ext.h` (the attrib setters at `include/GL/freeglut_ext.h:277`), which the
+consumer includes — the standalone build reuses those declarations. But the **new**
+standalone-only config API has no public declaration (`fgInitGL2` is internal to
+`src/fg_gl2.h:77`). Add a small installed header `include/GL/glutshapes.h` declaring:
+
+```c
+void glutShapesSetProcAddressFunc(void *(*resolver)(const char *name)); /* desktop GL2 path */
+void glutShapesSetGLVersion(int major);                                 /* sets HasOpenGL20 */
+void glutShapesInit(void);                                              /* public wrapper over fgInitGL2() */
+```
+
+implemented in `fg_glutshapes_shim.c` (the only place these names are defined). Without
+this header the consumer has no declared, exported entry to the standalone init/config
+surface.
 
 ### CMake target
 
@@ -317,10 +377,10 @@ the OSMesa use case.
 ## Critical files
 
 - **New (Phase 1):** `src/osmesa/{fg_internal_osmesa.h, fg_init_osmesa.c, fg_window_osmesa.c, fg_display_osmesa.c, fg_state_osmesa.c, fg_main_osmesa.c, fg_structure_osmesa.c, fg_ext_osmesa.c, fg_cursor_osmesa.c, fg_gamemode_osmesa.c, fg_input_devices_osmesa.c, fg_joystick_osmesa.c}`; `progs/osmesa-selftest/`.
-- **New (Phase 2):** `src/standalone/fg_glutshapes_shim.h`, `src/standalone/fg_glutshapes_shim.c`.
+- **New (Phase 2):** `src/standalone/fg_glutshapes_shim.h`, `src/standalone/fg_glutshapes_shim.c`, `include/GL/glutshapes.h` (public standalone init/config API).
 - **Edited, additive:**
-  - `src/fg_internal.h` — **only** the `#if TARGET_HOST_OSMESA` include at `:194-215` (no union/struct arm changes; the types come from the included header).
-  - `CMakeLists.txt` — `FREEGLUT_OSMESA` option/first-branch/find/define/libname/demos-off; `FREEGLUT_BUILD_GLUTSHAPES` option + `glutshapes` target.
+  - `src/fg_internal.h` — **three** guarded edits: append `&& !defined(TARGET_HOST_OSMESA)` to the auto-detect guard (`:39-40`), add the `TARGET_HOST_OSMESA` default-to-0 (`:78-112`), and the `#if TARGET_HOST_OSMESA` header include (`:194-215`). No union/struct arm changes — the platform types come from the included header.
+  - `CMakeLists.txt` — `FREEGLUT_OSMESA` option + exclusivity guard (before `:149`), OS-agnostic first platform branch (sources + `-DTARGET_HOST_OSMESA=1` + FindPkgConfig + link), skip the desktop-GL find block, `FREEGLUT_BUILD_DEMOS OFF`, `LIBNAME glut_osmesa`; `FREEGLUT_BUILD_GLUTSHAPES` option + `glutshapes` target + install `glutshapes.h`.
   - `fg_geometry.c`, `fg_teapot.c`, `fg_gl2.c`, `fg_gl2.h`, `fg_font.c`, `fg_font_data.c`, `fg_stroke_roman.c`, `fg_stroke_mono_roman.c` — the one guarded-include swap each.
   - `README` — both options, deps, and the GLES2/gl4es caveat.
 - **Reused templates (do not modify):** `src/ogc/*` (standalone-platform + stub model, incl. self-contained `fg_main_ogc.c`), `src/egl/*` (context-call analog only), `progs/demos/timer/` (self-test shape).
