@@ -88,6 +88,15 @@ OPTION(FREEGLUT_COCOA "Build support for Cocoa" OFF)
 OPTION(FREEGLUT_COCOA_SCROLLING_DELTA "Use pixel-based scrolling deltas on Cocoa" OFF)
 OPTION(FREEGLUT_COCOA_MOUSEWHEEL_X_AXIS "Report horizontal mouse wheel movement via glutMouseWheelFunc on Cocoa" OFF)
 
+# Headless off-screen rendering via OSMesa (no window system at all). OS-agnostic;
+# overrides the native platform on every OS, hence mutually exclusive with the
+# other window-system backends. Guard placed here, before any source-list logic
+# those options mutate (e.g. the GLES font swap further below).
+OPTION(FREEGLUT_OSMESA "Build the headless OSMesa (off-screen) backend" OFF)
+IF(FREEGLUT_OSMESA AND (FREEGLUT_GLES OR FREEGLUT_WAYLAND OR FREEGLUT_COCOA))
+    MESSAGE(FATAL_ERROR "FREEGLUT_OSMESA is mutually exclusive with FREEGLUT_GLES, FREEGLUT_WAYLAND and FREEGLUT_COCOA")
+ENDIF()
+
 # Eventually default to ON when Cocoa is fully supported
 # IF(APPLE)
 #     OPTION(FREEGLUT_COCOA "Build support for Cocoa" ON)
@@ -159,7 +168,31 @@ ELSE()
     )
 ENDIF()
 
-IF(WIN32)
+IF(FREEGLUT_OSMESA)
+    # OSMesa is window-system-less: it must override the native platform on
+    # every OS, so this branch comes first in the chain. -DTARGET_HOST_OSMESA
+    # selects the backend internally; -DFREEGLUT_OSMESA (public) bootstraps the
+    # GL header selection in freeglut_std.h for the library and its consumers.
+    ADD_DEFINITIONS(-DTARGET_HOST_OSMESA=1)
+    LIST(APPEND PUBLIC_DEFINITIONS -DFREEGLUT_OSMESA)
+    LIST(APPEND FREEGLUT_SRCS
+        src/osmesa/fg_internal_osmesa.h
+        src/osmesa/fg_init_osmesa.c
+        src/osmesa/fg_window_osmesa.c
+        src/osmesa/fg_display_osmesa.c
+        src/osmesa/fg_state_osmesa.c
+        src/osmesa/fg_main_osmesa.c
+        src/osmesa/fg_structure_osmesa.c
+        src/osmesa/fg_ext_osmesa.c
+        src/osmesa/fg_cursor_osmesa.c
+        src/osmesa/fg_gamemode_osmesa.c
+        src/osmesa/fg_input_devices_osmesa.c
+        src/osmesa/fg_joystick_osmesa.c
+        # public font-handle definitions: platform-agnostic, shared with X11/Wayland
+        src/x11/fg_glutfont_definitions_x11.c
+    )
+
+ELSEIF(WIN32)
     LIST(APPEND FREEGLUT_SRCS
         src/mswin/fg_cursor_mswin.c
         src/mswin/fg_display_mswin.c
@@ -341,7 +374,7 @@ ENDIF()
 
 INCLUDE(CheckIncludeFiles)
 
-IF(UNIX AND NOT(ANDROID OR BLACKBERRY OR FREEGLUT_WAYLAND OR OGC OR FREEGLUT_COCOA))
+IF(UNIX AND NOT(ANDROID OR BLACKBERRY OR FREEGLUT_WAYLAND OR OGC OR FREEGLUT_COCOA OR FREEGLUT_OSMESA))
     FIND_PACKAGE(X11 REQUIRED)
     INCLUDE_DIRECTORIES(${X11_X11_INCLUDE_PATH})
     LIST(APPEND LIBS ${X11_X11_LIB})
@@ -377,7 +410,20 @@ ENDIF()
 # need to be defined in client applications (e.g. through pkg-config),
 # but do use GLES constants directly for all other needs
 # GLES1 and GLES2 libraries are compatible and can be co-linked.
-IF(FREEGLUT_GLES)
+IF(FREEGLUT_OSMESA)
+    # OSMesa provides both the GL context and the GL entry points; no
+    # window-system GL (GLX/EGL/Cocoa) is found or linked.
+    INCLUDE(FindPkgConfig)
+    PKG_CHECK_MODULES(OSMESA osmesa)
+    IF(OSMESA_FOUND)
+        INCLUDE_DIRECTORIES(${OSMESA_INCLUDE_DIRS})
+        LINK_DIRECTORIES(${OSMESA_LIBRARY_DIRS})
+        LIST(APPEND LIBS ${OSMESA_LIBRARIES})
+    ELSE()
+        FIND_LIBRARY(OSMESA_LIBRARY OSMesa REQUIRED)
+        LIST(APPEND LIBS ${OSMESA_LIBRARY})
+    ENDIF()
+ELSEIF(FREEGLUT_GLES)
     LIST(APPEND PUBLIC_DEFINITIONS -DFREEGLUT_GLES)
     if(NOT CMAKE_VERSION VERSION_LESS "3.27")
       FIND_PACKAGE(OpenGL REQUIRED COMPONENTS EGL GLES2 OpenGL)
@@ -651,7 +697,10 @@ ELSE()
     # - the shared library should link to the dependency libraries so that the user
     #   won't have to link them explicitly (they shouldn't have to know that we depend
     #   on Xrandr or Xxf86vm)
-    IF(FREEGLUT_GLES)
+    IF(FREEGLUT_OSMESA)
+        # Distinct name so a headless build coexists with a normal freeglut.
+        SET(LIBNAME glut_osmesa)
+    ELSEIF(FREEGLUT_GLES)
         SET(LIBNAME freeglut-gles)
     ELSE()
         IF(FREEGLUT_REPLACE_GLUT)
@@ -724,11 +773,33 @@ ENDIF()
 INSTALL(FILES ${FREEGLUT_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GL COMPONENT Devel)
 
 ########################
+# OSMESA SELF-TEST
+########################
+# Built only for the headless backend (the GLU-using progs/ demos are skipped
+# under OSMesa). Links the freeglut library plus OSMesa directly, since the
+# test reads back the colour buffer itself via OSMesaGetColorBuffer().
+IF(FREEGLUT_OSMESA)
+    ADD_EXECUTABLE(osmesa_selftest progs/osmesa/osmesa_selftest.c)
+    IF(FREEGLUT_BUILD_SHARED_LIBS)
+        TARGET_LINK_LIBRARIES(osmesa_selftest freeglut ${LIBS})
+    ELSE()
+        TARGET_LINK_LIBRARIES(osmesa_selftest freeglut_static ${LIBS})
+    ENDIF()
+ENDIF()
+
+########################
 # DEMOS
 ########################
 
 # Optionally build demos, on by default.
 option( FREEGLUT_BUILD_DEMOS "Build FreeGLUT demos." ON )
+
+# The demos use GLU and assume a windowing backend; the headless OSMesa build
+# neither finds GLU nor has a window system, so skip them. The dedicated OSMesa
+# self-test (progs/osmesa) is built separately, gated on FREEGLUT_OSMESA.
+IF(FREEGLUT_OSMESA)
+    SET(FREEGLUT_BUILD_DEMOS OFF)
+ENDIF()
 
 if (FREEGLUT_BUILD_DEMOS)
     if (OPENGL_GLU_FOUND)
