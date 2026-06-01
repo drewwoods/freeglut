@@ -46,9 +46,15 @@ Currently supported platforms:
  - Android (NDK)
  - BlackBerry
  - Nintendo GameCube and Wii
+ - OSMesa (headless, off-screen software rendering with no window system)
 
 Consult the platform-specific readme files for details on the level of support
 and build instructions.
+
+A standalone "glutshapes" library (the geometry and font drawing -- glutSolid*,
+glutWire*, glutStrokeString, etc. -- with no windowing) can also be built for
+environments that already emulate GLUT windowing, such as Emscripten. See
+README.osmesa.
 
 
 INSTALLATION
