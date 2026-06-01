@@ -31,6 +31,13 @@
  * so there is no display server to open. We set up a nominal virtual screen
  * size (for glutGet(GLUT_SCREEN_*)) and the monotonic time base.
  */
+int fghOSMesaProcessExiting = 0;
+
+static void fghOSMesaMarkExiting( void )
+{
+    fghOSMesaProcessExiting = 1;
+}
+
 void fgPlatformInitialize( const char *displayName )
 {
     fgDisplay.ScreenWidth    = 1024;
@@ -42,6 +49,10 @@ void fgPlatformInitialize( const char *displayName )
     fgState.Initialised = GL_TRUE;
 
     atexit( fgDeinitialize );
+    /* Registered after fgDeinitialize, so atexit's LIFO order runs this
+     * marker first at process exit -- before fgDeinitialize tears down any
+     * still-live window. See fghOSMesaProcessExiting in fg_internal_osmesa.h. */
+    atexit( fghOSMesaMarkExiting );
 }
 
 void fgPlatformCloseDisplay( void )
@@ -52,7 +63,9 @@ void fgPlatformCloseDisplay( void )
 void fgPlatformDestroyContext( SFG_PlatformDisplay pDisplay,
                                SFG_WindowContextType MContext )
 {
-    if( MContext )
+    /* See fgPlatformCloseWindow: skip the Mesa teardown once the runtime has
+     * begun process exit, when the Gallium driver may already be finalized. */
+    if( MContext && !fghOSMesaProcessExiting )
         OSMesaDestroyContext( MContext );
 }
 

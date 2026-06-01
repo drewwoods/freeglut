@@ -90,4 +90,15 @@ struct tagSFG_PlatformJoystick
 #define _JS_MAX_AXES       4
 #define MAX_NUM_JOYSTICKS  8
 
+/*
+ * Set once the C runtime begins process exit (see fg_init_osmesa.c). The
+ * Gallium/swrast OSMesa driver runs its own __attribute__((destructor))
+ * teardown during __cxa_finalize, which nulls internal driver vtables; if
+ * freeglut's own atexit(fgDeinitialize) then destroys a still-live window it
+ * calls OSMesaDestroyContext on that half-finalized state and crashes. When
+ * this flag is set, the window close path leaks the context instead (the OS
+ * reclaims it at exit). Runtime glutDestroyWindow is unaffected.
+ */
+extern int fghOSMesaProcessExiting;
+
 #endif /* FREEGLUT_INTERNAL_OSMESA_H */
