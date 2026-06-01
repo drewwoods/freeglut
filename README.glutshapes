@@ -1,0 +1,77 @@
+freeglut — standalone "glutshapes" library (geometry + fonts, no windowing)
+===========================================================================
+
+This is NOT a freeglut backend. A freeglut backend (x11, cocoa, osmesa, ogc, …)
+is a platform that implements the windowing/event/context contract — it provides
+glutCreateWindow, glutMainLoop, input handling, and a GL context. "glutshapes"
+provides NONE of that. It is a small library containing only freeglut's drawing
+code — the glutSolid*/glutWire* solids, the teapot/teacup/teaspoon, and the
+stroke/bitmap text (glutStrokeString/glutBitmapString) — with no window system,
+event loop, or context creation at all.
+
+It is meant for environments that ALREADY emulate the GLUT windowing API and
+supply their own GL context, and just want freeglut's shapes and fonts on top:
+notably Emscripten (whose library_glut.js implements glutCreateWindow/
+glutMainLoop against an HTML canvas), optionally with gl4es to provide the legacy
+GL entry points the shapes use on top of WebGL/GLES.
+
+Because the host already implements the GLUT windowing API, a freeglut "null
+windowing backend" would be the wrong tool: it would still export
+glutCreateWindow/glutMainLoop and collide with the host's own GLUT. glutshapes
+ships only the drawing functions, so it composes cleanly with a host GLUT.
+
+
+Build
+-----
+
+    cmake -DFREEGLUT_BUILD_GLUTSHAPES=ON -B build .
+    cmake --build build --target glutshapes
+
+This produces the static library `glutshapes`. The option is independent of the
+platform-selection chain (it pulls in no backend and links no window-system
+libraries), so it can be built in any configuration.
+
+
+Symbols and headers
+-------------------
+
+The shape and font entry points keep their normal glut* names (glutSolidTeapot,
+glutStrokeString, glutSetVertexAttribCoord3, …) — that is the product you link
+against. The handful of freeglut-internal support symbols the geometry needs
+(fgState, fgStructure, fgError, fgWarning, glutGetProcAddress) are #define-renamed
+to private fgshapes_* names, so the library is self-contained and never collides
+with — or silently binds to — a host that already implements the GLUT/GL support
+API.
+
+A consumer includes <GL/freeglut.h> for the shape/font prototypes and, for the
+few standalone hooks, <GL/glutshapes.h>:
+
+    void glutShapesSetProcAddressFunc(void *(*resolver)(const char *name));
+    void glutShapesSetGLVersion(int major);
+    void glutShapesInit(void);
+
+
+Draw paths and the GLES2/WebGL caveat
+-------------------------------------
+
+  - By default the GL 1.1 fixed-function path is used (client vertex arrays for
+    the solids; glBitmap / immediate-mode glBegin for the fonts). This works on
+    desktop GL, on the OSMesa backend (README.osmesa), and on **gl4es** (which
+    emulates these legacy calls on top of GLES) — gl4es is therefore the natural
+    companion for using glutshapes in the browser.
+
+  - On a raw GLES2/WebGL context (no gl4es) only the GL 2.0 vertex-attrib path is
+    valid: build with -DFREEGLUT_GLES, call glutShapesSetGLVersion(2) (or
+    glutShapesInit after installing a proc-address resolver), bind a shader, and
+    pass the attribute locations via glutSetVertexAttribCoord3/Normal/TexCoord2.
+    The fixed-function fonts require gl4es in that case.
+
+
+Verification
+------------
+
+When OSMesa is also enabled (-DFREEGLUT_OSMESA=ON -DFREEGLUT_BUILD_GLUTSHAPES=ON),
+a functional test `glutshapes_selftest` is built that drives glutshapes with a
+raw OSMesa context and no freeglut windowing linked, confirming the solids and
+stroke fonts render standalone (sphere/teapot polygon-token capture, stroke-font
+line-token capture, and a non-blank framebuffer).
