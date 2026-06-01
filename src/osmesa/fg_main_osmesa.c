@@ -62,7 +62,19 @@ void fgPlatformSleepForEvents( fg_time_t msec )
 
 void fgPlatformProcessSingleEvent( void )
 {
-    /* Headless: no window-system events are ever delivered. */
+    /* Headless: no window-system events are ever delivered. The one thing that
+     * can arrive asynchronously is a SIGUSR1 frame-capture request. Service it
+     * here -- this runs every main-loop iteration, and the signal interrupts
+     * fgPlatformSleepForEvents's nanosleep, so an *idle* app (one that has
+     * stopped calling glutSwapBuffers) still gets captured. The last completed
+     * frame is still in the colour buffer, so no redraw is needed. The swap
+     * path services the same flag for the actively-animating case; whichever
+     * runs first clears it. */
+    if( fghOSMesaCaptureRequested )
+    {
+        fghOSMesaCaptureRequested = 0;
+        fghOSMesaCaptureFrame();
+    }
 }
 
 void fgPlatformMainLoopPreliminaryWork( void )
