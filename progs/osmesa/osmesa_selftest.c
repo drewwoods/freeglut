@@ -98,6 +98,14 @@ static void disp_triangle( void )
 
 static void disp_triangle_double( void )
 {
+    /* Pin the invariant: even though GLUT_DOUBLE was requested, OSMesa is
+     * single-buffered and the backend must report it as such (and the read-back
+     * below must still see the rendered image). */
+    if( glutGet( GLUT_WINDOW_DOUBLEBUFFER ) != 0 )
+    {
+        printf( "  [triangle/DOUBLE] FAIL: GLUT_WINDOW_DOUBLEBUFFER != 0\n" );
+        g_failures++;
+    }
     draw_triangle();
     glutSwapBuffers();                               /* must be a harmless no-op */
     check_centre( 255, 0, 0, "triangle/DOUBLE" );
