@@ -51,10 +51,10 @@ Currently supported platforms:
 Consult the platform-specific readme files for details on the level of support
 and build instructions.
 
-A standalone "glutshapes" library (the geometry and font drawing -- glutSolid*,
-glutWire*, glutStrokeString, etc. -- with no windowing) can also be built for
-environments that already emulate GLUT windowing, such as Emscripten. See
-README.osmesa.
+Separately, a standalone "glutshapes" library (just the geometry and font
+drawing -- glutSolid*, glutWire*, glutStrokeString, etc. -- with no windowing,
+event loop or context, and so not a backend) can be built for environments that
+already emulate GLUT windowing, such as Emscripten. See README.glutshapes.
 
 
 INSTALLATION
