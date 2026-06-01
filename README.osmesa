@@ -28,7 +28,8 @@ It is OS-agnostic (Linux, macOS, Windows) and is mutually exclusive with the
 FREEGLUT_GLES, FREEGLUT_WAYLAND and FREEGLUT_COCOA options (CMake errors out if
 they are combined).
 
-Dependencies:
+Dependencies (just OSMesa — the headless build does not use or link GLU, so
+libglu1-mesa-dev / GLU is NOT required):
   - Linux:   apt-get install libosmesa6-dev   (pulls llvmpipe)
   - macOS:   brew install mesa                 (provides libOSMesa + GL/osmesa.h)
   - Windows: a Mesa build providing osmesa.{h,lib/dll}
