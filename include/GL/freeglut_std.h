@@ -159,7 +159,12 @@
 #   include <OpenGL/glu.h>
 #else
 #   include <GL/gl.h>
-#   include <GL/glu.h>
+    /* The headless OSMesa build neither uses nor links GLU, so it must not
+       require <GL/glu.h> (e.g. a minimal Linux libosmesa6-dev install without
+       libglu1-mesa-dev). A consumer that wants GLU can include it itself. */
+#   ifndef FREEGLUT_OSMESA
+#       include <GL/glu.h>
+#   endif
 #endif
 #endif /* !defined(FREEGLUT_NO_GL_INCLUDE) */
 
