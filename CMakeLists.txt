@@ -777,6 +777,47 @@ IF(FREEGLUT_OSMESA)
 ENDIF()
 
 ########################
+# STANDALONE GEOMETRY+FONT LIBRARY (glutshapes)
+########################
+# A self-contained library of just the geometry/font code (glutSolid*/glutWire*,
+# the teapot, and the stroke/bitmap text), built via the compat shim with NO
+# freeglut windowing/event/context machinery. Intended for environments that
+# already emulate GLUT windowing (e.g. Emscripten + gl4es). Orthogonal to the
+# platform-selection chain above; it pulls no backend and links no window libs.
+OPTION(FREEGLUT_BUILD_GLUTSHAPES "Build the standalone geometry+font library (no windowing)" OFF)
+IF(FREEGLUT_BUILD_GLUTSHAPES)
+    ADD_LIBRARY(glutshapes STATIC
+        src/fg_geometry.c
+        src/fg_teapot.c
+        src/fg_gl2.c
+        src/fg_font.c
+        src/fg_font_data.c
+        src/fg_stroke_roman.c
+        src/fg_stroke_mono_roman.c
+        src/x11/fg_glutfont_definitions_x11.c   # public font-handle definitions (agnostic)
+        src/standalone/fg_glutshapes_shim.c
+    )
+    # FREEGLUT_GEOMETRY_STANDALONE swaps fg_internal.h for the shim; the inherited
+    # ${PUBLIC_DEFINITIONS} (e.g. -DFREEGLUT_OSMESA / -DFREEGLUT_GLES) keeps
+    # freeglut_std.h's GL header selection consistent with the rest of the build.
+    TARGET_COMPILE_DEFINITIONS(glutshapes PRIVATE FREEGLUT_GEOMETRY_STANDALONE ${PUBLIC_DEFINITIONS})
+    TARGET_INCLUDE_DIRECTORIES(glutshapes PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    # Functional test: drive glutshapes with a raw OSMesa context and no freeglut
+    # windowing linked. Only when OSMesa is available to supply that context.
+    IF(FREEGLUT_OSMESA)
+        ADD_EXECUTABLE(glutshapes_selftest progs/glutshapes/glutshapes_selftest.c)
+        TARGET_COMPILE_DEFINITIONS(glutshapes_selftest PRIVATE FREEGLUT_OSMESA)
+        TARGET_INCLUDE_DIRECTORIES(glutshapes_selftest PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include ${OSMESA_INCLUDE_DIRS})
+        TARGET_LINK_LIBRARIES(glutshapes_selftest glutshapes ${OSMESA_LIBRARIES})
+    ENDIF()
+ENDIF()
+
+########################
 # DEMOS
 ########################
 
