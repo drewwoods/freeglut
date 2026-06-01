@@ -108,5 +108,16 @@ extern void fgInitGL2( void );
 
 void glutShapesInit( void )
 {
+#ifndef GL_ES_VERSION_2_0
+    /* On a desktop GL context fgInitGL2() resolves the VBO entry points through
+     * the installed resolver; with none, it would store NULL pointers and a
+     * later GL2.0 draw would crash. Warn at init rather than at crash time.
+     * (On GLES2/WebGL the entry points are linked directly, so no resolver is
+     * needed and this check is compiled out.) */
+    if( !fgshapes_resolver )
+        fgshapes_Warning( "glutShapesInit() called with no proc-address resolver; "
+                          "install one via glutShapesSetProcAddressFunc() before "
+                          "using the GL2.0 vertex-attrib path on desktop GL" );
+#endif
     fgInitGL2();
 }
