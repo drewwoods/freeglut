@@ -778,7 +778,9 @@ INSTALL(FILES ${FREEGLUT_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GL COM
 # Built only for the headless backend (the GLU-using progs/ demos are skipped
 # under OSMesa). Links the freeglut library plus OSMesa directly, since the
 # test reads back the colour buffer itself via OSMesaGetColorBuffer().
-IF(FREEGLUT_OSMESA)
+# EXISTS guard so a curated checkout that omits progs/ (e.g. a downstream
+# vendor that only wants the library) still configures cleanly.
+IF(FREEGLUT_OSMESA AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/progs/osmesa/osmesa_selftest.c")
     ADD_EXECUTABLE(osmesa_selftest progs/osmesa/osmesa_selftest.c)
     IF(FREEGLUT_BUILD_SHARED_LIBS)
         TARGET_LINK_LIBRARIES(osmesa_selftest freeglut ${LIBS})
@@ -819,7 +821,7 @@ IF(FREEGLUT_BUILD_GLUTSHAPES)
 
     # Functional test: drive glutshapes with a raw OSMesa context and no freeglut
     # windowing linked. Only when OSMesa is available to supply that context.
-    IF(FREEGLUT_OSMESA)
+    IF(FREEGLUT_OSMESA AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/progs/glutshapes/glutshapes_selftest.c")
         ADD_EXECUTABLE(glutshapes_selftest progs/glutshapes/glutshapes_selftest.c)
         TARGET_COMPILE_DEFINITIONS(glutshapes_selftest PRIVATE FREEGLUT_OSMESA)
         TARGET_INCLUDE_DIRECTORIES(glutshapes_selftest PRIVATE
