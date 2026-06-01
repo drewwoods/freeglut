@@ -99,6 +99,29 @@ void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr,
      * subsequent OSMesaGetColorBuffer()/glReadPixels() sees a complete frame. */
     glFinish();
 
+    /* FREEGLUT_CAPTURE_FRAMES=N: deterministic record mode. Capture EVERY frame
+     * to a numbered PPM and exit(0) after N -- no signal, so no coalescing.
+     * Lets a headless run emit an exact-length frame sequence for offline
+     * GIF/MP4 assembly; each frame is a clean fixed timestep, so the sequence
+     * is reproducible across machines. Read once (cached). */
+    {
+        static int frame_limit = -1;     /* -1 = unread; 0 = disabled */
+        static int frame_count = 0;
+        if( frame_limit < 0 )
+        {
+            const char *e = getenv( "FREEGLUT_CAPTURE_FRAMES" );
+            frame_limit = ( e && *e ) ? atoi( e ) : 0;
+            if( frame_limit < 0 )
+                frame_limit = 0;
+        }
+        if( frame_limit > 0 )
+        {
+            fghOSMesaCaptureFrame();
+            if( ++frame_count >= frame_limit )
+                exit( 0 );
+        }
+    }
+
     /* A pending SIGUSR1 capture request is serviced here -- on the main thread,
      * after the frame is complete -- not in the async signal handler. */
     if( fghOSMesaCaptureRequested )
