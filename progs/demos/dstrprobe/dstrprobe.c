@@ -1,3 +1,20 @@
+/*
+ * dstrprobe.c
+ *
+ * Probe glutInitDisplayString() semantics.
+ *
+ * This program is deliberately restricted to the classic GLUT 3.7 API plus
+ * plain OpenGL state queries, so the very same source file compiles
+ * unmodified against different GLUT implementations and the output can be
+ * diffed directly between them:
+ *
+ *   freeglut:               cc dstrprobe.c -lglut
+ *   Apple GLUT.framework:   cc -DUSE_GLUT dstrprobe.c -framework GLUT -framework OpenGL
+ *
+ * Do not add freeglut-specific calls, tokens, or glutGet() enums here; the
+ * only permitted implementation switch is the header include below.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,15 +28,27 @@
 #endif
 
 #ifdef USE_GLUT
-#  include <GLUT/glut.h>
+#  include <GLUT/glut.h>     /* Apple GLUT.framework */
 #else
-#  include <GL/freeglut.h>
+#  include <GL/glut.h>       /* freeglut (classic GLUT header) */
 #endif
 
+/* Fallbacks for older GL headers; all are standard OpenGL enums. */
 #ifndef GL_SAMPLES
 #define GL_SAMPLES 0x80A9
 #endif
+#ifndef GL_SAMPLE_BUFFERS
+#define GL_SAMPLE_BUFFERS 0x80A8
+#endif
+#ifndef GL_RGBA_MODE
+#define GL_RGBA_MODE 0x0C31
+#endif
+#ifndef GL_INDEX_BITS
+#define GL_INDEX_BITS 0x0D51
+#endif
 
+/* GLUT_AUX is a freeglut extension bit; harmless as 0 elsewhere. It is only
+ * used by --display-mode-reset-test to build a "kitchen sink" mode mask. */
 #ifndef GLUT_AUX
 #define GLUT_AUX 0
 #endif
@@ -40,11 +69,11 @@ static void print_help( const char *progname )
         "       %s --help\n"
         "\n"
         "Probe glutInitDisplayString() to determine whether a display mode is\n"
-        "possible and report the resulting GL pixel format attributes.\n"
+        "possible and report the resulting GL framebuffer attributes.\n"
         "\n"
         "Arguments:\n"
         "  display-string             Display string to probe (e.g. \"rgb double depth>=16\").\n"
-        "  NULL                       Probe with a NULL display string (falls back to the\n"
+        "  NULL                       Probe with no display string (falls back to the\n"
         "                             mode set by glutInitDisplayMode).\n"
         "\n"
         "Options:\n"
@@ -73,18 +102,19 @@ typedef struct ProbeCase {
     const char *note;
 } ProbeCase;
 
+/* All framebuffer attributes are queried straight from OpenGL (ground
+ * truth), never through implementation-specific glutGet() enums. */
 typedef struct ProbeResult {
     int possible;
-    int window;
-    int formatId;
+    int haveDetails;
+    int rgbaMode;
     int doublebuffer;
-    int rgba;
     int stereo;
-    int numSamples;
     int redBits;
     int greenBits;
     int blueBits;
     int alphaBits;
+    int indexBits;
     int depthBits;
     int stencilBits;
     int accumRedBits;
@@ -93,6 +123,7 @@ typedef struct ProbeResult {
     int accumAlphaBits;
     int auxBuffers;
     int samples;
+    int sampleBuffers;
 } ProbeResult;
 
 static int query_gl_int( GLenum pname )
@@ -103,27 +134,76 @@ static int query_gl_int( GLenum pname )
     return value;
 }
 
+static int query_gl_bool( GLenum pname )
+{
+    GLboolean value = GL_FALSE;
+
+    glGetBooleanv( pname, &value );
+    return value ? 1 : 0;
+}
+
 static void init_probe_result( ProbeResult *result )
 {
-    result->possible       = 0;
-    result->window         = -1;
-    result->formatId       = -1;
-    result->doublebuffer   = -1;
-    result->rgba           = -1;
-    result->stereo         = -1;
-    result->numSamples     = -1;
-    result->redBits        = -1;
-    result->greenBits      = -1;
-    result->blueBits       = -1;
-    result->alphaBits      = -1;
-    result->depthBits      = -1;
-    result->stencilBits    = -1;
-    result->accumRedBits   = -1;
-    result->accumGreenBits = -1;
-    result->accumBlueBits  = -1;
-    result->accumAlphaBits = -1;
-    result->auxBuffers     = -1;
-    result->samples        = -1;
+    memset( result, 0, sizeof( *result ) );
+    result->possible    = 0;
+    result->haveDetails = 0;
+}
+
+/* Probe the current init state: report whether the display mode is possible
+ * and, when requested, create a window and read the resulting framebuffer
+ * attributes back from OpenGL. */
+static int probe_display_string( int collectWindowDetails, ProbeResult *result )
+{
+    int window;
+
+    init_probe_result( result );
+
+    result->possible = glutGet( GLUT_DISPLAY_MODE_POSSIBLE );
+
+    if ( !result->possible || !collectWindowDetails )
+        return result->possible;
+
+    window = glutCreateWindow( "dstrprobe" );
+
+    result->haveDetails    = 1;
+    result->rgbaMode       = query_gl_bool( GL_RGBA_MODE );
+    result->doublebuffer   = query_gl_bool( GL_DOUBLEBUFFER );
+    result->stereo         = query_gl_bool( GL_STEREO );
+    result->redBits        = query_gl_int( GL_RED_BITS );
+    result->greenBits      = query_gl_int( GL_GREEN_BITS );
+    result->blueBits       = query_gl_int( GL_BLUE_BITS );
+    result->alphaBits      = query_gl_int( GL_ALPHA_BITS );
+    result->indexBits      = query_gl_int( GL_INDEX_BITS );
+    result->depthBits      = query_gl_int( GL_DEPTH_BITS );
+    result->stencilBits    = query_gl_int( GL_STENCIL_BITS );
+    result->accumRedBits   = query_gl_int( GL_ACCUM_RED_BITS );
+    result->accumGreenBits = query_gl_int( GL_ACCUM_GREEN_BITS );
+    result->accumBlueBits  = query_gl_int( GL_ACCUM_BLUE_BITS );
+    result->accumAlphaBits = query_gl_int( GL_ACCUM_ALPHA_BITS );
+    result->auxBuffers     = query_gl_int( GL_AUX_BUFFERS );
+    result->samples        = query_gl_int( GL_SAMPLES );
+    result->sampleBuffers  = query_gl_int( GL_SAMPLE_BUFFERS );
+
+    glutDestroyWindow( window );
+
+    return result->possible;
+}
+
+/* glxinfo-style context banner. Uses a throwaway window with a portable
+ * display mode so glGetString() has a current context. */
+static void print_gl_info_banner( void )
+{
+    int window;
+
+    glutInitDisplayMode( GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH );
+    window = glutCreateWindow( "dstrprobe" );
+
+    printf( "OpenGL vendor string: %s\n",   (const char *)glGetString( GL_VENDOR ) );
+    printf( "OpenGL renderer string: %s\n", (const char *)glGetString( GL_RENDERER ) );
+    printf( "OpenGL version string: %s\n",  (const char *)glGetString( GL_VERSION ) );
+    printf( "\n" );
+
+    glutDestroyWindow( window );
 }
 
 static void print_probe_result_detail( const char *displayString, const ProbeResult *result )
@@ -131,19 +211,17 @@ static void print_probe_result_detail( const char *displayString, const ProbeRes
     printf( "display_string=%s\n", displayString ? displayString : "(null)" );
     printf( "possible=%d\n", result->possible );
 
-    if ( result->window < 0 )
+    if ( !result->haveDetails )
         return;
 
-    printf( "window=%d\n", result->window );
-    printf( "format_id=%d\n", result->formatId );
+    printf( "rgba_mode=%d\n", result->rgbaMode );
     printf( "doublebuffer=%d\n", result->doublebuffer );
-    printf( "rgba=%d\n", result->rgba );
     printf( "stereo=%d\n", result->stereo );
-    printf( "num_samples=%d\n", result->numSamples );
     printf( "red_bits=%d\n", result->redBits );
     printf( "green_bits=%d\n", result->greenBits );
     printf( "blue_bits=%d\n", result->blueBits );
     printf( "alpha_bits=%d\n", result->alphaBits );
+    printf( "index_bits=%d\n", result->indexBits );
     printf( "depth_bits=%d\n", result->depthBits );
     printf( "stencil_bits=%d\n", result->stencilBits );
     printf( "accum_red_bits=%d\n", result->accumRedBits );
@@ -152,6 +230,7 @@ static void print_probe_result_detail( const char *displayString, const ProbeRes
     printf( "accum_alpha_bits=%d\n", result->accumAlphaBits );
     printf( "aux_buffers=%d\n", result->auxBuffers );
     printf( "samples=%d\n", result->samples );
+    printf( "sample_buffers=%d\n", result->sampleBuffers );
 }
 
 static void format_col_int( char *buf, int val, int width )
@@ -193,10 +272,14 @@ static void print_probe_result_table_header( void )
     printf( "----------------------------------------------------------------------------\n" );
 }
 
-static void print_probe_result_summary( const ProbeCase *probeCase, const char *displayString, const ProbeResult *result )
+/* One glxinfo-style table row. "id" is the probe row number (GLUT has no
+ * portable way to report the underlying visual/pixel-format id). */
+static void print_probe_result_summary( const ProbeCase *probeCase, const char *displayString,
+                                        const ProbeResult *result, int id )
 {
-    int valid = result->possible;
+    int valid = result->possible && result->haveDetails;
     int dep = -1;
+    int sz = -1;
 
     char id_str[16];
     char dep_str[16];
@@ -226,25 +309,22 @@ static void print_probe_result_summary( const ProbeCase *probeCase, const char *
     const char *caveat = "None";
 
     if ( valid ) {
-        dep = 0;
-        if ( result->redBits >= 0 ) dep += result->redBits;
-        if ( result->greenBits >= 0 ) dep += result->greenBits;
-        if ( result->blueBits >= 0 ) dep += result->blueBits;
-        if ( result->alphaBits >= 0 ) dep += result->alphaBits;
-        cl_str = ( result->rgba == 1 ) ? "tc" : "ci";
-        b_char = ( result->doublebuffer == 1 ) ? 'y' : '.';
-        ro_char = ( result->stereo == 1 ) ? 'y' : '.';
+        dep = result->redBits + result->greenBits + result->blueBits + result->alphaBits;
+        sz  = result->rgbaMode ? dep : result->indexBits;
+        cl_str = result->rgbaMode ? "tc" : "ci";
+        b_char = result->doublebuffer ? 'y' : '.';
+        ro_char = result->stereo ? 'y' : '.';
     }
 
-    format_col_hex( id_str, valid ? result->formatId : -1, 5 );
+    format_col_hex( id_str, valid ? id : -1, 5 );
     format_col_int( dep_str, dep, 2 );
     format_col_int( sp_str, -1, 2 );
-    format_col_int( sz_str, dep, 3 );
+    format_col_int( sz_str, sz, 3 );
     format_col_int( l_str, valid ? 0 : -1, 2 );
 
     if ( valid ) {
-        ci_str[0] = ( result->rgba == 1 ) ? 'r' : ' ';
-        ci_str[1] = ( result->rgba == 0 ) ? 'c' : ' ';
+        ci_str[0] = result->rgbaMode ? 'r' : ' ';
+        ci_str[1] = result->rgbaMode ? ' ' : 'c';
         ci_str[2] = '\0';
     } else {
         strcpy( ci_str, "  " );
@@ -264,12 +344,8 @@ static void print_probe_result_summary( const ProbeCase *probeCase, const char *
     format_col_int( ab_str, valid ? result->accumBlueBits : -1, 2 );
     format_col_int( aa_str, valid ? result->accumAlphaBits : -1, 2 );
 
-    int ns = -1;
-    if ( valid ) {
-        ns = result->samples >= 0 ? result->samples : ( result->numSamples >= 0 ? result->numSamples : -1 );
-    }
-    format_col_int( ns_str, ns, 2 );
-    format_col_int( ms_b_str, ( ns > 0 ) ? 1 : ( ( ns == 0 ) ? 0 : -1 ), 1 );
+    format_col_int( ns_str, valid ? result->samples : -1, 2 );
+    format_col_int( ms_b_str, valid ? result->sampleBuffers : -1, 1 );
 
     printf( "%s %s %s %s %s %s %s %c %c  %s %s %s %s %c  %c %s %s %s",
             id_str, dep_str, cl_str, sp_str, sz_str, l_str,
@@ -307,140 +383,97 @@ static void print_probe_result_summary( const ProbeCase *probeCase, const char *
     printf( "\n" );
 }
 
-static int probe_display_string( int collectWindowDetails, ProbeResult *result )
-{
-    init_probe_result( result );
-
-    result->possible = glutGet( GLUT_DISPLAY_MODE_POSSIBLE );
-
-    if ( !result->possible || !collectWindowDetails )
-        return result->possible;
-
-    result->window       = glutCreateWindow( "dstrprobe" );
-    result->formatId     =
-#ifdef USE_GLUT
-                           -1;
-#else
-                           glutGet( GLUT_WINDOW_FORMAT_ID );
-#endif
-    result->doublebuffer = glutGet( GLUT_WINDOW_DOUBLEBUFFER );
-    result->rgba         = glutGet( GLUT_WINDOW_RGBA );
-    result->stereo       = glutGet( GLUT_WINDOW_STEREO );
-    result->numSamples   =
-#ifdef USE_GLUT
-                           -1;
-#else
-                           glutGet( GLUT_WINDOW_NUM_SAMPLES );
-#endif
-    result->redBits      = query_gl_int( GL_RED_BITS );
-    result->greenBits    = query_gl_int( GL_GREEN_BITS );
-    result->blueBits     = query_gl_int( GL_BLUE_BITS );
-    result->alphaBits    = query_gl_int( GL_ALPHA_BITS );
-    result->depthBits    = query_gl_int( GL_DEPTH_BITS );
-    result->stencilBits  = query_gl_int( GL_STENCIL_BITS );
-    result->accumRedBits = query_gl_int( GL_ACCUM_RED_BITS );
-    result->accumGreenBits = query_gl_int( GL_ACCUM_GREEN_BITS );
-    result->accumBlueBits  = query_gl_int( GL_ACCUM_BLUE_BITS );
-    result->accumAlphaBits = query_gl_int( GL_ACCUM_ALPHA_BITS );
-    result->auxBuffers     = query_gl_int( GL_AUX_BUFFERS );
-    result->samples        = query_gl_int( GL_SAMPLES );
-
-    glutDestroyWindow( result->window );
-#ifndef USE_GLUT
-    glutMainLoopEvent( );
-#endif
-
-    return result->possible;
-}
+static const ProbeCase g_self_test_cases[] = {
+    { "rgb_single", "rgb", PROBE_CASE_TYPE_VALID, "Baseline single-buffered RGB configuration" },
+    { "rgb_double", "rgb double", PROBE_CASE_TYPE_VALID, "Baseline double-buffered RGB configuration" },
+    { "single", "rgb single", PROBE_CASE_TYPE_VALID,
+        "Explicit single token maps to doublebuffer=0 (double-buffered visuals may serve as single)" },
+    { "basic_rgb_depth", "rgb double depth>=12", PROBE_CASE_TYPE_VALID, "Portable RGB double-buffered depth request" },
+    { "rgba_alpha_depth", "rgba alpha>=1 depth>=12", PROBE_CASE_TYPE_VALID, "Explicit alpha plus depth request" },
+    { "rgba_depth_stencil", "rgba double depth stencil", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Bare stencil token defaults to ~1: stencil-capable but preferring the least stencil" },
+    { "rgba8_depth24", "red>=8 green>=8 blue>=8 alpha>=8 depth>=24", PROBE_CASE_TYPE_VALID, "Typical modern RGBA8 plus depth configuration" },
+    { "depth_eq_16", "depth=16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Platform-dependent exact 16-bit depth availability" },
+    { "depth_neq_16", "depth!=16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Useful for checking NEQ comparator handling across implementations" },
+    { "samples_default", "samples", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Bare samples defaults to <=4 preferring more (i.e. requests multisampling if available)" },
+    { "samples_eq_4", "samples=4", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Platform-dependent exact multisample count request" },
+    { "samples_lte_4", "samples<=4", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Comparator test for multisample selection" },
+    { "stencil_samples_combo", "stencil~2 rgb double depth>=16 samples", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Man-page style mixed comparator request; sample count preference varies" },
+    { "stereo", "stereo", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Stereo support depends on hardware and driver stack" },
+    { "acca", "acca", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Accumulation buffers are platform-dependent and often unavailable on modern systems" },
+    { "auxbufs_eq_1", "auxbufs=1", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Aux buffer availability varies widely by backend" },
+    { "impossible_depth", "rgb depth>256", PROBE_CASE_TYPE_INVALID, "Strict impossible comparator case" },
+    { "impossible_alpha", "rgba alpha>64", PROBE_CASE_TYPE_INVALID, "Strict impossible comparator case" },
+    { "bare_value_tokens", "rgb double depth", PROBE_CASE_TYPE_VALID,
+        "Bare value tokens must resolve to documented defaults (regression: X11 treated unspecified criteria as a hard fail)" },
+    { "malformed_token", "rgb double depth=", PROBE_CASE_TYPE_VALID,
+        "Malformed token (comparator without value) is warned about and ignored, per GLUT" },
+    { "srgb_token", "rgb double depth>=16 srgb", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "freeglut sRGB extension token; unrecognized (warn+ignore) on classic GLUT implementations" },
+    { "captionless_token", "rgba depth captionless", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "freeglut captionless extension token; unrecognized (warn+ignore) on classic GLUT implementations" },
+    { "acca_eq_16", "acca=16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Exact accumulation precision: must match exactly, so impossible where the driver's accum size is fixed (e.g. 32-bit on macOS)" },
+    { "acca_min_16", "acca~16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "'~' means >=value preferring less: satisfied by any accum >= 16, including the fixed 32-bit accum on macOS" },
+    { "complex_acca_eq_combo",
+        "rgba double depth~24 samples=4 alpha acca=16 auxbufs~2 slow=0 buffer stencil", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Mixed comparators; the exact acca=16 makes this impossible on macOS (driver-fixed 32-bit accum) -- prefer acca~16 for a portable request" },
+    { "complex_acca_min_combo",
+        "rgba double depth~24 samples=4 alpha acca~16 auxbufs~2 slow=0 buffer stencil", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Portable form of the mixed-comparator combo using acca~16; satisfied wherever accum >= 16" },
+};
+#define NUM_SELF_TEST_CASES ( (int)( sizeof( g_self_test_cases ) / sizeof( g_self_test_cases[0] ) ) )
 
 static int run_self_test( int summaryMode )
 {
-    static const ProbeCase cases[] = {
-        { "rgb_single", "rgb", PROBE_CASE_TYPE_VALID, "Baseline single-buffered RGB configuration" },
-        { "rgb_double", "rgb double", PROBE_CASE_TYPE_VALID, "Baseline double-buffered RGB configuration" },
-        { "basic_rgb_depth", "rgb double depth>=12", PROBE_CASE_TYPE_VALID, "Portable RGB double-buffered depth request" },
-        { "rgba_alpha_depth", "rgba alpha>=1 depth>=12", PROBE_CASE_TYPE_VALID, "Explicit alpha plus depth request" },
-        { "rgba_depth_stencil", "rgba double depth stencil", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "Bare stencil token should request a stencil-capable format when the platform supports one" },
-        { "rgba8_depth24", "red>=8 green>=8 blue>=8 alpha>=8 depth>=24", PROBE_CASE_TYPE_VALID, "Typical modern RGBA8 plus depth configuration" },
-        { "depth_eq_16", "depth=16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Platform-dependent exact 16-bit depth availability" },
-        { "depth_neq_16", "depth!=16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Useful for checking NEQ comparator handling across implementations" },
-        { "samples_default", "samples", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Platform-dependent multisample default request" },
-        { "samples_eq_4", "samples=4", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Platform-dependent exact multisample count request" },
-        { "samples_lte_4", "samples<=4", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Comparator test for multisample selection" },
-        { "stencil_samples_combo", "stencil~2 rgb double depth>=16 samples", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "Man-page style mixed comparator request; sample count preference varies" },
-        { "stereo", "stereo", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Stereo support depends on hardware and driver stack" },
-        { "acca", "acca", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Accumulation buffers are platform-dependent and often unavailable on modern systems" },
-        { "auxbufs_eq_1", "auxbufs=1", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Aux buffer availability varies widely by backend" },
-        { "impossible_depth", "rgb depth>256", PROBE_CASE_TYPE_INVALID, "Strict impossible comparator case" },
-        { "impossible_alpha", "rgba alpha>64", PROBE_CASE_TYPE_INVALID, "Strict impossible comparator case" },
-        { "bare_value_tokens", "rgb double depth", PROBE_CASE_TYPE_VALID,
-            "Bare value tokens must resolve to documented defaults (regression: X11 treated unspecified criteria as a hard fail)" },
-        { "srgb_token", "rgb double depth>=16 srgb", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "freeglut sRGB extension token; always available on macOS, GLX_ARB_framebuffer_sRGB dependent on X11 (regression: Cocoa once aborted on GLUT_SRGB)" },
-        { "captionless_token", "rgba depth captionless", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "freeglut captionless extension token; window-decoration support is platform-dependent" },
-        { "acca_eq_16", "acca=16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "Exact accumulation precision: must match exactly, so impossible where the driver's accum size is fixed (e.g. 32-bit on macOS)" },
-        { "acca_min_16", "acca~16", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "'~' means >=value preferring less: satisfied by any accum >= 16, including the fixed 32-bit accum on macOS" },
-        { "complex_acca_eq_combo",
-            "rgba double depth~24 samples=4 alpha acca=16 auxbufs~2 slow=0 buffer stencil", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "Mixed comparators; the exact acca=16 makes this impossible on macOS (driver-fixed 32-bit accum) -- prefer acca~16 for a portable request" },
-        { "complex_acca_min_combo",
-            "rgba double depth~24 samples=4 alpha acca~16 auxbufs~2 slow=0 buffer stencil", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
-            "Portable form of the mixed-comparator combo using acca~16; satisfied wherever accum >= 16" },
-    };
+    ProbeResult results[NUM_SELF_TEST_CASES];
     int failures = 0;
     int i;
 
-    if ( summaryMode ) {
-        print_probe_result_table_header( );
-    }
+    print_gl_info_banner( );
 
-    for ( i = 0; i < (int)( sizeof( cases ) / sizeof( cases[0] ) ); i++ ) {
-        ProbeResult result;
+    for ( i = 0; i < NUM_SELF_TEST_CASES; i++ ) {
+        const ProbeCase *probeCase = &g_self_test_cases[i];
 
-        glutInitDisplayString( cases[i].displayString );
-        probe_display_string( summaryMode, &result );
+        glutInitDisplayString( (char *)probeCase->displayString );
+        probe_display_string( 1, &results[i] );
 
-        if ( summaryMode ) {
-            print_probe_result_summary( &cases[i], cases[i].displayString, &result );
-        }
-        else {
-            print_probe_result_detail( cases[i].displayString, &result );
+        if ( !summaryMode ) {
+            print_probe_result_detail( probeCase->displayString, &results[i] );
 
-            if ( cases[i].type != PROBE_CASE_TYPE_PLATFORM_SPECIFIC ) {
-                int expected = ( cases[i].type == PROBE_CASE_TYPE_VALID );
-                int mismatch = result.possible != expected;
+            if ( probeCase->type != PROBE_CASE_TYPE_PLATFORM_SPECIFIC ) {
+                int expected = ( probeCase->type == PROBE_CASE_TYPE_VALID );
+                int mismatch = results[i].possible != expected;
                 printf( "case=%s expected=%d actual=%s%d%s\n",
-                    cases[i].name,
+                    probeCase->name,
                     expected,
                     mismatch ? ansi_red( ) : ansi_green( ),
-                    result.possible,
-                    mismatch ? ansi_reset( ) : ansi_reset( ) );
+                    results[i].possible,
+                    ansi_reset( ) );
             } else {
-                printf( "case=%s expected=platform actual=%d\n", cases[i].name, result.possible );
+                printf( "case=%s expected=platform actual=%d\n", probeCase->name, results[i].possible );
             }
 
-            if ( cases[i].note )
-                printf( "note=%s\n", cases[i].note );
-
-            if ( result.possible ) {
-                probe_display_string( 1, &result );
-                print_probe_result_detail( cases[i].displayString, &result );
-            }
+            if ( probeCase->note )
+                printf( "note=%s\n", probeCase->note );
+            printf( "\n" );
         }
 
-        if ( cases[i].type != PROBE_CASE_TYPE_PLATFORM_SPECIFIC ) {
-            int expected = ( cases[i].type == PROBE_CASE_TYPE_VALID );
-            if ( result.possible != expected ) {
+        if ( probeCase->type != PROBE_CASE_TYPE_PLATFORM_SPECIFIC ) {
+            int expected = ( probeCase->type == PROBE_CASE_TYPE_VALID );
+            if ( results[i].possible != expected )
                 failures++;
-                continue;
-            }
         }
     }
+
+    /* glxinfo-style table of every probed configuration. */
+    print_probe_result_table_header( );
+    for ( i = 0; i < NUM_SELF_TEST_CASES; i++ )
+        print_probe_result_summary( &g_self_test_cases[i], g_self_test_cases[i].displayString,
+                                    &results[i], i );
 
     printf( "self_test_failures=%d\n", failures );
     return failures ? 1 : 0;
@@ -497,9 +530,6 @@ int main( int argc, char **argv )
     }
 
     glutInit( &argc, argv );
-#ifndef USE_GLUT
-    glutSetOption( GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS );
-#endif
     glutInitWindowSize( 160, 120 );
     glutInitDisplayMode( GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH );
 
@@ -523,7 +553,7 @@ int main( int argc, char **argv )
 
         probe_display_string( 1, &result );
         print_probe_result_table_header( );
-        print_probe_result_summary( NULL, displayString, &result );
+        print_probe_result_summary( NULL, displayString, &result, 0 );
         return result.possible ? 0 : 1;
     }
 }
