@@ -39,7 +39,8 @@ static void fghReadConfigCapabilities(Display *dpy, GLXFBConfig config, int *val
         GLX_DEPTH_SIZE, GLX_STENCIL_SIZE,
         GLX_ACCUM_RED_SIZE, GLX_ACCUM_GREEN_SIZE,
         GLX_ACCUM_BLUE_SIZE, GLX_ACCUM_ALPHA_SIZE,
-        GLX_SAMPLES, GLX_AUX_BUFFERS, GLX_BUFFER_SIZE
+        GLX_SAMPLES, GLX_AUX_BUFFERS, GLX_BUFFER_SIZE,
+        GLX_CONFIG_CAVEAT
     };
     int i;
 
@@ -49,6 +50,10 @@ static void fghReadConfigCapabilities(Display *dpy, GLXFBConfig config, int *val
         glXGetFBConfigAttrib(dpy, config, glxAttrib[i], &value);
         values[i] = value;
     }
+
+    /* Normalise the caveat to the boolean "slow" capability. Mesa notably
+     * marks accumulation-capable configs with the slow caveat. */
+    values[FG_CAP_SLOW] = (values[FG_CAP_SLOW] == GLX_SLOW_CONFIG) ? 1 : 0;
 }
 
 /* Select the matching FBConfig from fbconfigArray according to the parsed

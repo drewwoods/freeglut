@@ -245,6 +245,9 @@ static GLboolean fghPixelFormatMatchesDisplayString( NSOpenGLPixelFormat *pixelF
     values[FG_CAP_SAMPLES]     = samples;
     values[FG_CAP_AUX]         = auxBuffers;
     values[FG_CAP_BUFFER]      = colorSize + alphaSize;
+    /* Only hardware-accelerated formats are requested (NSOpenGLPFAAccelerated),
+     * so no format ever carries a slow caveat; "slow=1" is unsatisfiable. */
+    values[FG_CAP_SLOW]        = 0;
 
     /* Exact comparators ("=") must match exactly per the man page. macOS
      * reports a fixed accumulation precision (32 bits/channel), so e.g.
