@@ -83,16 +83,72 @@ GLboolean fghCriteriaPass( const FGDisplayStringCriteria *c, const int *values )
     return GL_TRUE;
 }
 
-/* Per the man page: > and >= prefer more, < <= and ~ prefer less, = and !=
- * are exact (no ranking contribution). */
+static GLboolean fghHasCapability( const FGDisplayStringCriteria *c, FGCapability capability )
+{
+    int i;
+
+    for ( i = 0; i < c->count; i++ )
+        if ( c->entries[ i ].capability == capability )
+            return GL_TRUE;
+    return GL_FALSE;
+}
+
+void fghAppendUnspecifiedCriteriaDefaults( FGDisplayStringCriteria *c, GLboolean indexMode )
+{
+    /* Mirror original GLUT's parseModeString(): every capability not named in
+     * the display string gets a low-priority criterion appended after the
+     * user's entries, so terse strings behave sensibly and prefer minimal
+     * configurations (no over-allocation of samples, accum, aux, depth or
+     * stencil). Append order follows glut_dstr.c and matters: these rank
+     * strictly below everything the user wrote. */
+    FGCriterion exactlyZero  = fghMakeCriterion( FG_EQ, 0 );
+    FGCriterion preferZero   = fghMakeCriterion( FG_MIN, 0 );
+    FGCriterion atLeastOne   = fghMakeCriterion( FG_GTE, 1 );
+
+    if ( !fghHasCapability( c, FG_CAP_SAMPLES ) )
+        fghAddCriterion( c, FG_CAP_SAMPLES, exactlyZero, exactlyZero );
+
+    if ( !fghHasCapability( c, FG_CAP_ACCUM_RED ) ) {
+        fghAddCriterion( c, FG_CAP_ACCUM_RED,   preferZero, preferZero );
+        fghAddCriterion( c, FG_CAP_ACCUM_GREEN, preferZero, preferZero );
+        fghAddCriterion( c, FG_CAP_ACCUM_BLUE,  preferZero, preferZero );
+        fghAddCriterion( c, FG_CAP_ACCUM_ALPHA, preferZero, preferZero );
+    }
+
+    if ( !fghHasCapability( c, FG_CAP_AUX ) )
+        fghAddCriterion( c, FG_CAP_AUX, preferZero, preferZero );
+
+    if ( !indexMode &&
+         !fghHasCapability( c, FG_CAP_RED ) && !fghHasCapability( c, FG_CAP_GREEN ) &&
+         !fghHasCapability( c, FG_CAP_BLUE ) && !fghHasCapability( c, FG_CAP_ALPHA ) ) {
+        fghAddCriterion( c, FG_CAP_RED,   atLeastOne, atLeastOne );
+        fghAddCriterion( c, FG_CAP_GREEN, atLeastOne, atLeastOne );
+        fghAddCriterion( c, FG_CAP_BLUE,  atLeastOne, atLeastOne );
+        fghAddCriterion( c, FG_CAP_ALPHA, preferZero, preferZero );
+    }
+
+    if ( !fghHasCapability( c, FG_CAP_DEPTH ) )
+        fghAddCriterion( c, FG_CAP_DEPTH, preferZero, preferZero );
+
+    if ( !fghHasCapability( c, FG_CAP_STENCIL ) )
+        fghAddCriterion( c, FG_CAP_STENCIL, preferZero, preferZero );
+}
+
+/* Ranking direction per original GLUT findMatch() scoring: <, <=, > and >=
+ * all maximise (fbvalue - cvalue), i.e. prefer MORE (for < and <= that means
+ * the closest value under the bound -- this is what makes bare "samples",
+ * which defaults to "<=4", actually pick 4 samples rather than 0). Only ~
+ * (FG_MIN) prefers less; = and != are exact (no ranking contribution).
+ * Note the man page's "preferring larger difference" wording for < and <=
+ * contradicts the GLUT implementation; the implementation wins. */
 static int fghPreferenceDir( FGCriterionComparison comparison )
 {
     switch ( comparison ) {
     case FG_GT:
     case FG_GTE:
-        return 1;
     case FG_LT:
     case FG_LTE:
+        return 1;
     case FG_MIN:
         return -1;
     default:
