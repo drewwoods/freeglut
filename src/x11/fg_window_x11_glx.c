@@ -98,8 +98,12 @@ static int fghSelectConfigByCriteria(Display *dpy, GLXFBConfig *fbconfigArray,
         matches[j + 1] = key;
     }
 
-    /* "num" selects the Nth matching config in ranked order (0 = best). */
-    chosen = (c->num > 0 && c->num < matchCount) ? matches[c->num] : matches[0];
+    /* "num" selects the Nth matching config in ranked order, 1-indexed per
+     * GLUT ("num=1" is the best match); out of range means no match. */
+    if (c->num > 0)
+        chosen = (c->num <= matchCount) ? matches[c->num - 1] : -1;
+    else
+        chosen = matches[0];
 
     free(values);
     free(matches);
@@ -139,35 +143,44 @@ int fghChooseConfig(GLXFBConfig* fbconfig)
     ATTRIB_VAL( GLX_STEREO, True );
   }
 
-  if( fgState.DisplayMode & GLUT_DEPTH ) {
-    ATTRIB_VAL( GLX_DEPTH_SIZE, 1 );
-  }
-
-  if( fgState.DisplayMode & GLUT_STENCIL ) {
-    ATTRIB_VAL( GLX_STENCIL_SIZE, 1 );
-  }
-
-  if( fgState.DisplayMode & GLUT_ACCUM ) {
-    ATTRIB_VAL( GLX_ACCUM_RED_SIZE, 1 );
-    ATTRIB_VAL( GLX_ACCUM_GREEN_SIZE, 1 );
-    ATTRIB_VAL( GLX_ACCUM_BLUE_SIZE, 1 );
-    if( fgState.DisplayMode & GLUT_ALPHA ) {
-      ATTRIB_VAL( GLX_ACCUM_ALPHA_SIZE, 1 );
+  /* With a display string, depth/stencil/accum/aux/multisample selection is
+   * fully expressed by the criteria (including the appended low-priority
+   * defaults for unspecified capabilities), so the coarse pre-filter must not
+   * constrain them: e.g. "samples" means "<=4 preferring more", which a
+   * GLX_SAMPLE_BUFFERS=1 pre-filter would wrongly turn into a hard
+   * requirement. Color model, double buffering and stereo stay here because
+   * the criteria model does not cover them. */
+  if( !fgState.DisplayStrCriteria.haveDisplayString ) {
+    if( fgState.DisplayMode & GLUT_DEPTH ) {
+      ATTRIB_VAL( GLX_DEPTH_SIZE, 1 );
     }
-  }
 
-  numAuxBuffers = fghNumberOfAuxBuffersRequested();
-  if ( numAuxBuffers > 0 ) {
-    ATTRIB_VAL( GLX_AUX_BUFFERS, numAuxBuffers );
+    if( fgState.DisplayMode & GLUT_STENCIL ) {
+      ATTRIB_VAL( GLX_STENCIL_SIZE, 1 );
+    }
+
+    if( fgState.DisplayMode & GLUT_ACCUM ) {
+      ATTRIB_VAL( GLX_ACCUM_RED_SIZE, 1 );
+      ATTRIB_VAL( GLX_ACCUM_GREEN_SIZE, 1 );
+      ATTRIB_VAL( GLX_ACCUM_BLUE_SIZE, 1 );
+      if( fgState.DisplayMode & GLUT_ALPHA ) {
+        ATTRIB_VAL( GLX_ACCUM_ALPHA_SIZE, 1 );
+      }
+    }
+
+    numAuxBuffers = fghNumberOfAuxBuffersRequested();
+    if ( numAuxBuffers > 0 ) {
+      ATTRIB_VAL( GLX_AUX_BUFFERS, numAuxBuffers );
+    }
+
+    if (fgState.DisplayMode & GLUT_MULTISAMPLE) {
+      ATTRIB_VAL(GLX_SAMPLE_BUFFERS, 1);
+      ATTRIB_VAL(GLX_SAMPLES, fgState.SampleNumber);
+    }
   }
 
   if( fgState.DisplayMode & GLUT_SRGB ) {
     ATTRIB_VAL( GLX_FRAMEBUFFER_SRGB_CAPABLE_ARB, True );
-  }
-
-  if (fgState.DisplayMode & GLUT_MULTISAMPLE) {
-    ATTRIB_VAL(GLX_SAMPLE_BUFFERS, 1);
-    ATTRIB_VAL(GLX_SAMPLES, fgState.SampleNumber);
   }
 
   /* Push a terminator at the end of the list */

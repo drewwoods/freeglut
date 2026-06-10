@@ -348,10 +348,10 @@ typedef enum {
     FG_NONE,        /* empty slot                                  */
     FG_EQ,          /* cap=val                                     */
     FG_NEQ,         /* cap!=val                                    */
-    FG_LTE,         /* cap<=val  (preferring less)                 */
+    FG_LTE,         /* cap<=val  (preferring more, under the bound)*/
     FG_GTE,         /* cap>=val  (preferring more)                 */
     FG_GT,          /* cap>val   (preferring more)                 */
-    FG_LT,          /* cap<val   (preferring less)                 */
+    FG_LT,          /* cap<val   (preferring more, under the bound)*/
     FG_MIN,         /* cap~val   (>=val but preferring less)       */
     FG_UNSPECIFIED  /* bare cap, default not yet resolved          */
 } FGCriterionComparison;
@@ -401,6 +401,11 @@ void fghAddCriterion( FGDisplayStringCriteria *c, FGCapability capability,
 
 /* Hard filter: do all criteria pass? values[] is indexed by FGCapability. */
 GLboolean fghCriteriaPass( const FGDisplayStringCriteria *c, const int *values );
+
+/* Append low-priority criteria for every capability the display string did
+ * not mention (samples=0, accum/aux/depth/stencil ~0, RGB >=1 + alpha ~0
+ * unless indexMode), mirroring original GLUT's parseModeString() defaults. */
+void fghAppendUnspecifiedCriteriaDefaults( FGDisplayStringCriteria *c, GLboolean indexMode );
 
 /* Lexicographic ranking in display-string order. Returns <0 if A is the
  * better match, >0 if B is, 0 if equivalent. Exact comparators (=, !=)

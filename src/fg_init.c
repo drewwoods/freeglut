@@ -305,8 +305,8 @@ void fgDeinitialize( void )
 }
 
 /* parseCriteria() returns this when a comparator is present but malformed
- * (e.g. "depth=" or "depth=16x"); fghAddCriterion() treats it as unspecified
- * and substitutes the capability's documented default. */
+ * (e.g. "depth=" or "depth!16"); per original GLUT the whole token is then
+ * warned about and ignored. */
 #define FG_INVALID ((FGCriterionComparison)(-1))
 
 /* Parse a display string token and return a Criterion struct.
@@ -371,16 +371,12 @@ static FGCriterion parseCriteria(const char *word)
             return c;
         }
 
-        if ( vstr && *vstr ) {
-            c.value = (int)strtol( vstr, &endptr, 0 );
-            if ( endptr == vstr || *endptr != '\0' ) {
-                /* Not a valid number or has trailing garbage */
-                c.comparison = FG_INVALID;
-                c.value = 0;
-            }
-        } else {
-            /* Comparator present but no value */
+        /* Per original GLUT, only "no number at all" is malformed; trailing
+         * garbage after the number is accepted ("depth=16x" parses as 16). */
+        c.value = (int)strtol( vstr, &endptr, 0 );
+        if ( endptr == vstr ) {
             c.comparison = FG_INVALID;
+            c.value      = 0;
         }
     } else {
         /* No comparator found */
@@ -544,6 +540,15 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
 
         parsed = parseCriteria( token );
 
+        /* Original GLUT warns about and ignores the whole token when the
+         * comparator/value is malformed (e.g. "depth=" or "depth!16"). */
+        if ( parsed.comparison == FG_INVALID )
+        {
+            fgWarning( "Unrecognized display string word: %s (ignoring)", token );
+            token = strtok( NULL, " \t" );
+            continue;
+        }
+
         switch ( i )
         {
         case 0:  /* "alpha":  Alpha color buffer precision. Default >=1 */
@@ -551,19 +556,19 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
             fghAddCriterion( dsc, FG_CAP_ALPHA, parsed, fghMakeCriterion(FG_GTE, 1) );
             break;
 
-        case 1:  /* "acca":  RGBA accumulation buffer precision. Default >=1 each */
+        case 1:  /* "acca":  RGBA accumulation buffer precision. Default >=8 each */
             glut_state_flag |= GLUT_ACCUM;
-            fghAddCriterion( dsc, FG_CAP_ACCUM_RED,   parsed, fghMakeCriterion(FG_GTE, 1) );
-            fghAddCriterion( dsc, FG_CAP_ACCUM_GREEN, parsed, fghMakeCriterion(FG_GTE, 1) );
-            fghAddCriterion( dsc, FG_CAP_ACCUM_BLUE,  parsed, fghMakeCriterion(FG_GTE, 1) );
-            fghAddCriterion( dsc, FG_CAP_ACCUM_ALPHA, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_RED,   parsed, fghMakeCriterion(FG_GTE, 8) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_GREEN, parsed, fghMakeCriterion(FG_GTE, 8) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_BLUE,  parsed, fghMakeCriterion(FG_GTE, 8) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_ALPHA, parsed, fghMakeCriterion(FG_GTE, 8) );
             break;
 
-        case 2:  /* "acc":  RGB accumulation, zero alpha. Default >=1 RGB, ~0 alpha */
+        case 2:  /* "acc":  RGB accumulation, zero alpha. Default >=8 RGB, ~0 alpha */
             glut_state_flag |= GLUT_ACCUM;
-            fghAddCriterion( dsc, FG_CAP_ACCUM_RED,   parsed, fghMakeCriterion(FG_GTE, 1) );
-            fghAddCriterion( dsc, FG_CAP_ACCUM_GREEN, parsed, fghMakeCriterion(FG_GTE, 1) );
-            fghAddCriterion( dsc, FG_CAP_ACCUM_BLUE,  parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_RED,   parsed, fghMakeCriterion(FG_GTE, 8) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_GREEN, parsed, fghMakeCriterion(FG_GTE, 8) );
+            fghAddCriterion( dsc, FG_CAP_ACCUM_BLUE,  parsed, fghMakeCriterion(FG_GTE, 8) );
             fghAddCriterion( dsc, FG_CAP_ACCUM_ALPHA,
                              fghMakeCriterion(FG_UNSPECIFIED, 0), fghMakeCriterion(FG_MIN, 0) );
             break;
@@ -584,8 +589,10 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
             fghAddCriterion( dsc, FG_CAP_DEPTH, parsed, fghMakeCriterion(FG_GTE, 12) );
             break;
 
-        case 7:  /* "double":  Double buffering */
-            glut_state_flag |= GLUT_DOUBLE;
+        case 7:  /* "double":  Double buffering. GLUT models this as criterion
+                  * DOUBLEBUFFER=value, so "double=0" means single-buffered. */
+            if ( !( parsed.comparison == FG_EQ && parsed.value == 0 ) )
+                glut_state_flag |= GLUT_DOUBLE;
             break;
 
         case 8:  /* "green":  Green color buffer precision. Default >=1 */
@@ -630,17 +637,24 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
             fghAddCriterion( dsc, FG_CAP_BLUE,  fghMakeCriterion(FG_EQ, 0), fghMakeCriterion(FG_EQ, 0) );
             break;
 
-        case 15:  /* "stencil":  Stencil bits. Presence implies >=1 */
+        case 15:  /* "stencil":  Stencil bits. Bare default is ~1: stencil-capable
+                   * but preferring the least stencil (per GLUT glut_dstr.c) */
             glut_state_flag |= GLUT_STENCIL;
-            fghAddCriterion( dsc, FG_CAP_STENCIL, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_STENCIL, parsed, fghMakeCriterion(FG_MIN, 1) );
             break;
 
-        case 16:  /* "single":  Single buffered */
+        case 16:  /* "single":  Single buffered. GLUT rejects a comparator here */
+            if ( parsed.comparison != FG_UNSPECIFIED )
+            {
+                fgWarning( "Unrecognized display string word: %s (ignoring)", token );
+                break;
+            }
             glut_state_flag |= GLUT_SINGLE;
             break;
 
-        case 17:  /* "stereo":  Stereo color buffer */
-            glut_state_flag |= GLUT_STEREO;
+        case 17:  /* "stereo":  Stereo color buffer. "stereo=0" means no stereo */
+            if ( !( parsed.comparison == FG_EQ && parsed.value == 0 ) )
+                glut_state_flag |= GLUT_STEREO;
             break;
 
         case 18:  /* "samples":  Multisample count. Default <=4 */
@@ -680,9 +694,10 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
             break;
 
         case 36:  /* "aux" */
-        case 37:  /* "auxbufs":  Auxiliary buffers. Presence implies >=1 */
+        case 37:  /* "auxbufs":  Auxiliary buffers. Bare default is ~1: at least
+                   * one but preferring the fewest (per GLUT glut_dstr.c) */
             glut_state_flag |= GLUT_AUX;
-            fghAddCriterion( dsc, FG_CAP_AUX, parsed, fghMakeCriterion(FG_GTE, 1) );
+            fghAddCriterion( dsc, FG_CAP_AUX, parsed, fghMakeCriterion(FG_MIN, 1) );
             fgState.AuxiliaryBufferNumber = ( parsed.comparison == FG_EQ ) ? parsed.value : 1;
             break;
 
@@ -703,6 +718,12 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
     }
 
     free( buffer );
+
+    /* Capabilities the string did not mention get low-priority defaults
+     * appended after the user's criteria (prefer minimal configurations),
+     * exactly like original GLUT's parseModeString(). */
+    fghAppendUnspecifiedCriteriaDefaults(
+        dsc, ( glut_state_flag & GLUT_INDEX ) ? GL_TRUE : GL_FALSE );
 
     /* Set the DisplayMode for compatibility */
     fgState.DisplayMode = glut_state_flag;
