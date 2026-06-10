@@ -27,34 +27,6 @@
 
 enum { FG_COCOA_MAX_PIXEL_FORMAT_ATTRS = 128 };
 
-/* NSOpenGLPixelFormat has no enumeration API; it returns one closest format.
- * For building that request we need a single criterion per capability, so we
- * start from the documented defaults and let display-string entries override
- * (last occurrence wins). The authoritative accept/reject test remains
- * fghCriteriaPass() over the full ordered entry list. */
-static void fghCocoaEffectiveCriteria( FGCriterion *eff )
-{
-    const FGDisplayStringCriteria *c = &fgState.DisplayStrCriteria;
-    int i;
-
-    eff[FG_CAP_RED]         = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_GREEN]       = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_BLUE]        = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_ALPHA]       = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_DEPTH]       = fghMakeCriterion( FG_GTE, 12 );
-    eff[FG_CAP_STENCIL]     = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_ACCUM_RED]   = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_ACCUM_GREEN] = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_ACCUM_BLUE]  = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_ACCUM_ALPHA] = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_SAMPLES]     = fghMakeCriterion( FG_LTE, 4 );
-    eff[FG_CAP_AUX]         = fghMakeCriterion( FG_GTE, 1 );
-    eff[FG_CAP_BUFFER]      = fghMakeCriterion( FG_GTE, 1 );
-
-    for ( i = 0; i < c->count; i++ )
-        eff[ c->entries[i].capability ] = c->entries[i].criterion;
-}
-
 static GLboolean fghCocoaUsesUnsupportedPixelMode( void )
 {
     if ( fgState.DisplayMode & GLUT_INDEX )
@@ -69,125 +41,107 @@ static GLboolean fghCocoaUsesUnsupportedPixelMode( void )
     return GL_FALSE;
 }
 
-static int fghWeightForCriterion( FGCriterion criterion, int minWeight, int maxWeight )
+/* Smallest value of a capability that can satisfy one criterion, clamped to
+ * what the platform can plausibly provide. For < and <= this is the bound
+ * itself (they prefer MORE under the bound, per GLUT's findMatch scoring);
+ * NSOpenGLPixelFormat then rounds to the closest supported value. */
+static int fghWeightForCriterion( FGCriterion criterion, int maxWeight )
 {
     switch ( criterion.comparison ) {
     case FG_EQ:
         return criterion.value;
-    case FG_NEQ: {
-        int candidate = maxWeight - criterion.value;
-
-        if ( candidate != criterion.value && candidate > minWeight )
-            return candidate;
-        if ( maxWeight != criterion.value )
-            return maxWeight;
-        return minWeight;
-    }
+    case FG_NEQ:
+        /* Anything but the value; ask for nothing unless 0 is forbidden. */
+        return ( criterion.value == 0 ) ? 1 : 0;
     case FG_LT:
+        return MAX( 0, MIN( maxWeight, criterion.value - 1 ) );
     case FG_LTE:
-        return minWeight;
+        return MAX( 0, MIN( maxWeight, criterion.value ) );
     case FG_GT:
-        return MIN( maxWeight, MAX( minWeight, criterion.value + 1 ) );
+        return MIN( maxWeight, criterion.value + 1 );
     case FG_GTE:
-        return MIN( maxWeight, MAX( minWeight, criterion.value ) );
     case FG_MIN:
-        return MIN( maxWeight, MAX( minWeight, criterion.value ) );
-    case FG_UNSPECIFIED:
-        return minWeight;
+        return MIN( maxWeight, MAX( 0, criterion.value ) );
     case FG_NONE:
+    case FG_UNSPECIFIED:
     default:
         return 0;
     }
 }
 
+/* NSOpenGLPixelFormat has no enumeration API; it returns one closest format,
+ * so the request must be a single value per capability. Use the largest
+ * weight over all entries for the capability (user tokens plus the appended
+ * unspecified-capability defaults), which is the smallest request that can
+ * satisfy every criterion at once. The authoritative accept/reject test
+ * remains fghCriteriaPass() over the full ordered entry list afterwards. */
+static int fghCapabilityWeight( FGCapability capability, int maxWeight )
+{
+    const FGDisplayStringCriteria *c = &fgState.DisplayStrCriteria;
+    int weight = 0;
+    int i;
+
+    for ( i = 0; i < c->count; i++ ) {
+        if ( c->entries[i].capability != capability )
+            continue;
+        weight = MAX( weight, fghWeightForCriterion( c->entries[i].criterion, maxWeight ) );
+    }
+    return weight;
+}
+
 static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
 {
-    FGCriterion eff[FG_CAP_COUNT];
-    int         n = 0;
-    FGCriterion red, green, blue, alpha;
-    FGCriterion accumRed, accumGreen, accumBlue, accumAlpha;
-    FGCriterion depth, stencil, auxBuffers, samples;
+    int n = 0;
+    int colorBits, alphaBits, accumBits, depthBits, stencilBits, auxBuffers, samples;
 
-    fghCocoaEffectiveCriteria( eff );
-    red        = eff[FG_CAP_RED];
-    green      = eff[FG_CAP_GREEN];
-    blue       = eff[FG_CAP_BLUE];
-    alpha      = eff[FG_CAP_ALPHA];
-    accumRed   = eff[FG_CAP_ACCUM_RED];
-    accumGreen = eff[FG_CAP_ACCUM_GREEN];
-    accumBlue  = eff[FG_CAP_ACCUM_BLUE];
-    accumAlpha = eff[FG_CAP_ACCUM_ALPHA];
-    depth      = eff[FG_CAP_DEPTH];
-    stencil    = eff[FG_CAP_STENCIL];
-    auxBuffers = eff[FG_CAP_AUX];
-    samples    = eff[FG_CAP_SAMPLES];
+    colorBits = MAX( fghCapabilityWeight( FG_CAP_RED, 16 ),
+                MAX( fghCapabilityWeight( FG_CAP_GREEN, 16 ),
+                     fghCapabilityWeight( FG_CAP_BLUE, 16 ) ) ) * 3;
+    alphaBits = fghCapabilityWeight( FG_CAP_ALPHA, 16 );
+
+    accumBits = MAX( fghCapabilityWeight( FG_CAP_ACCUM_RED, 32 ),
+                MAX( fghCapabilityWeight( FG_CAP_ACCUM_GREEN, 32 ),
+                MAX( fghCapabilityWeight( FG_CAP_ACCUM_BLUE, 32 ),
+                     fghCapabilityWeight( FG_CAP_ACCUM_ALPHA, 32 ) ) ) ) * 4;
+
+    depthBits   = fghCapabilityWeight( FG_CAP_DEPTH, 32 );
+    stencilBits = fghCapabilityWeight( FG_CAP_STENCIL, 8 );
+    auxBuffers  = fghCapabilityWeight( FG_CAP_AUX, 4 );
+    samples     = fghCapabilityWeight( FG_CAP_SAMPLES, 16 );
 
     attrs[n++] = NSOpenGLPFAAccelerated;
     attrs[n++] = NSOpenGLPFAClosestPolicy;
 
-    {
-        int colorBits = 0;
-
-        colorBits = MAX( fghWeightForCriterion( red, 1, 16 ), colorBits );
-        colorBits = MAX( fghWeightForCriterion( green, 1, 16 ), colorBits );
-        colorBits = MAX( fghWeightForCriterion( blue, 1, 16 ), colorBits );
-        colorBits *= 3;
-
-        if ( colorBits > 0 ) {
-            attrs[n++] = NSOpenGLPFAColorSize;
-            attrs[n++] = colorBits;
-        }
+    if ( colorBits > 0 ) {
+        attrs[n++] = NSOpenGLPFAColorSize;
+        attrs[n++] = colorBits;
     }
-
-    {
-        int alphaBits = fghWeightForCriterion( alpha, 0, 16 );
-
-        if ( alphaBits > 0 ) {
-            attrs[n++] = NSOpenGLPFAAlphaSize;
-            attrs[n++] = alphaBits;
-        }
+    if ( alphaBits > 0 ) {
+        attrs[n++] = NSOpenGLPFAAlphaSize;
+        attrs[n++] = alphaBits;
     }
-
-    {
-        int accumBits = 0;
-
-        accumBits = MAX( fghWeightForCriterion( accumRed, 1, 32 ), accumBits );
-        accumBits = MAX( fghWeightForCriterion( accumGreen, 1, 32 ), accumBits );
-        accumBits = MAX( fghWeightForCriterion( accumBlue, 1, 32 ), accumBits );
-        accumBits = MAX( fghWeightForCriterion( accumAlpha, 0, 32 ), accumBits );
-        accumBits *= 4;
-
-        if ( accumBits > 0 ) {
-            attrs[n++] = NSOpenGLPFAAccumSize;
-            attrs[n++] = accumBits;
-        }
+    if ( accumBits > 0 ) {
+        attrs[n++] = NSOpenGLPFAAccumSize;
+        attrs[n++] = accumBits;
     }
-
-    if ( depth.comparison != FG_NONE ) {
+    if ( depthBits > 0 ) {
         attrs[n++] = NSOpenGLPFADepthSize;
-        attrs[n++] = fghWeightForCriterion( depth, 12, 32 );
+        attrs[n++] = depthBits;
     }
-
-    if ( stencil.comparison != FG_NONE ) {
+    if ( stencilBits > 0 ) {
         attrs[n++] = NSOpenGLPFAStencilSize;
-        attrs[n++] = fghWeightForCriterion( stencil, 0, 8 );
+        attrs[n++] = stencilBits;
     }
-
-    if ( auxBuffers.comparison != FG_NONE ) {
+    if ( auxBuffers > 0 ) {
         attrs[n++] = NSOpenGLPFAAuxBuffers;
-        attrs[n++] = fghWeightForCriterion( auxBuffers, 1, 2 );
+        attrs[n++] = auxBuffers;
     }
-
-    if ( samples.comparison != FG_NONE ) {
-        int requestedSamples = fghWeightForCriterion( samples, 1, 16 );
-
-        if ( requestedSamples > 0 ) {
-            attrs[n++] = NSOpenGLPFAMultisample;
-            attrs[n++] = NSOpenGLPFASampleBuffers;
-            attrs[n++] = 1;
-            attrs[n++] = NSOpenGLPFASamples;
-            attrs[n++] = requestedSamples;
-        }
+    if ( samples > 0 ) {
+        attrs[n++] = NSOpenGLPFAMultisample;
+        attrs[n++] = NSOpenGLPFASampleBuffers;
+        attrs[n++] = 1;
+        attrs[n++] = NSOpenGLPFASamples;
+        attrs[n++] = samples;
     }
 
     return n;
