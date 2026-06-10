@@ -47,13 +47,20 @@ Equal.
 Not equal.
 .TP 8
 .B <
-Less than and preferring larger difference (the least is best).
+Less than and preferring more instead of less (the closest value
+under the bound is best).
 .TP 8
 .B >
 Greater than and preferring larger differences (the most is best).
 .TP 8
 .B <=
-Less than or equal and preferring larger difference (the least is best).
+Less than or equal and preferring more instead of less (the closest
+value under the bound is best).  This is what makes the bare
+\fBsamples\fP capability, whose default is "<=4", actually select
+multisampling rather than zero samples.  Note: GLUT's original
+documentation described < and <= as "preferring less", which
+contradicts the GLUT implementation; freeglut follows the
+implementation.
 .TP 8
 .B >=
 Greater than or equal and preferring more instead of less.
@@ -79,16 +86,20 @@ Default is ">=1".
 .TP 8
 .B acca
 Red, green, blue, and alpha accumulation buffer precision in bits.
-Default is ">=1" for red, green, blue, and alpha capabilities.
+Default is ">=8" for red, green, blue, and alpha capabilities.
+(GLUT's original documentation said ">=1", but the GLUT
+implementation uses ">=8"; freeglut follows the implementation.)
 .TP 8
 .B acc
 Red, green, and green accumulation buffer precision in bits and zero
 bits of alpha accumulation buffer precision.
-Default is ">=1" for red, green, and blue capabilities, and
+Default is ">=8" for red, green, and blue capabilities, and
 "~0" for the alpha capability.
 .TP 8
 .B auxbufs
 Number of auxillary buffers.
+Default is "~1" (at least one auxiliary buffer, preferring the
+fewest).
 .TP 8
 .B blue
 Blue color buffer precision in bits.
@@ -167,7 +178,10 @@ request multipsampling if available by simply specifying "samples".
 .TP 8
 .B single
 Boolean indicate the color buffer is single buffered.
-Double buffer capability "=1".
+Double buffer capability "=0".  A comparator and numeric value are
+not allowed.  (GLUT's original documentation said "=1", which
+contradicts the GLUT implementation; freeglut follows the
+implementation.)
 .TP 8
 .B slow
 Boolean indicating if the frame buffer configuration is slow or not.
@@ -187,6 +201,8 @@ visuals, but fast visuals will still be allowed.
 .TP 8
 .B stencil
 Number of bits in the stencil buffer.
+Default is "~1" (a stencil-capable configuration, preferring the
+least stencil).
 .TP 8
 .B stereo
 Boolean indicating the color buffer is supports OpenGL-style stereo.
@@ -247,10 +263,21 @@ will be choosen in preference to slow frame buffer configurations, but
 slow frame buffer configurations will still be choosen if no better
 fast frame buffer configuration is available.
 .LP
+Concretely, every capability not named in the string gets a
+low-priority criterion appended after the user's criteria, in this
+order: "samples=0", accumulation red, green, blue and alpha "~0",
+"auxbufs~0", then (unless a color capability or "index" was given)
+red, green and blue ">=1" with alpha "~0", then "depth~0" and
+"stencil~0".  As a result a terse string such as "rgb" selects a
+minimal frame buffer configuration: no depth, stencil, accumulation,
+auxiliary or multisample buffers are allocated unless asked for.
+.LP
 freeglut implements the strict left-to-right precedence described above:
 when several frame buffer configurations satisfy every criterion, they are
 ranked by comparing the criteria in the order they appear in the string, so
-the leftmost non-exact criterion dominates.
+the leftmost non-exact criterion dominates.  Capability descriptions with a
+malformed comparator or value (for example "depth=" or "depth!16") are
+warned about and the whole description is ignored, as in original GLUT.
 .SH FREEGLUT EXTENSIONS
 In addition to the capability names above, freeglut accepts the following
 capability names that are not part of the original GLUT specification:
