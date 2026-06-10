@@ -59,8 +59,9 @@ value under the bound is best).  This is what makes the bare
 \fBsamples\fP capability, whose default is "<=4", actually select
 multisampling rather than zero samples.  Note: GLUT's original
 documentation described < and <= as "preferring less", which
-contradicts the GLUT implementation; freeglut follows the
-implementation.
+contradicts the GLUT implementation (even the otherwise-corrected
+man page Apple ships with macOS retains that wording); freeglut
+follows the implementation.
 .TP 8
 .B >=
 Greater than or equal and preferring more instead of less.
@@ -88,7 +89,9 @@ Default is ">=1".
 Red, green, blue, and alpha accumulation buffer precision in bits.
 Default is ">=8" for red, green, blue, and alpha capabilities.
 (GLUT's original documentation said ">=1", but the GLUT
-implementation uses ">=8"; freeglut follows the implementation.)
+implementation uses ">=8"; freeglut follows the implementation,
+as does the corrected glutInitDisplayString man page Apple ships
+in the macOS SDK.)
 .TP 8
 .B acc
 Red, green, and green accumulation buffer precision in bits and zero
@@ -99,7 +102,8 @@ Default is ">=8" for red, green, and blue capabilities, and
 .B auxbufs
 Number of auxillary buffers.
 Default is "~1" (at least one auxiliary buffer, preferring the
-fewest).
+fewest), per the GLUT implementation and Apple's macOS man page;
+GLUT's original documentation gave no default.
 .TP 8
 .B blue
 Blue color buffer precision in bits.
@@ -181,7 +185,8 @@ Boolean indicate the color buffer is single buffered.
 Double buffer capability "=0".  A comparator and numeric value are
 not allowed.  (GLUT's original documentation said "=1", which
 contradicts the GLUT implementation; freeglut follows the
-implementation.)
+implementation, as does the corrected man page Apple ships in the
+macOS SDK.)
 .TP 8
 .B slow
 Boolean indicating if the frame buffer configuration is slow or not.
@@ -202,7 +207,8 @@ visuals, but fast visuals will still be allowed.
 .B stencil
 Number of bits in the stencil buffer.
 Default is "~1" (a stencil-capable configuration, preferring the
-least stencil).
+least stencil), per the GLUT implementation and Apple's macOS man
+page; GLUT's original documentation gave no default.
 .TP 8
 .B stereo
 Boolean indicating the color buffer is supports OpenGL-style stereo.
