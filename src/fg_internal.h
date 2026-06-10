@@ -368,6 +368,8 @@ typedef enum {
     FG_CAP_DEPTH, FG_CAP_STENCIL,
     FG_CAP_ACCUM_RED, FG_CAP_ACCUM_GREEN, FG_CAP_ACCUM_BLUE, FG_CAP_ACCUM_ALPHA,
     FG_CAP_SAMPLES, FG_CAP_AUX, FG_CAP_BUFFER,
+    FG_CAP_SLOW,    /* 1 if the format carries a "slow" caveat (GLX config
+                       caveat / Win32 unaccelerated generic PFD), else 0 */
     FG_CAP_COUNT
 } FGCapability;
 

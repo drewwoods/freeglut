@@ -203,6 +203,13 @@ are slower (but perhaps higher precision) for the current machine.
 Default is ">=0" if not comparator and numeric value are provided.
 This default means that slow visuals are used in preference to fast
 visuals, but fast visuals will still be allowed.
+When no "slow" capability description is provided at all, fast frame
+buffer configurations are preferred over slow ones at a priority above
+every other criterion in the string (but slow configurations are still
+allowed); this matches original GLUT.  Note that Mesa-based GLX
+implementations commonly mark frame buffer configurations that include
+accumulation buffers with the slow caveat (visible in "glxinfo -l"), so
+a request such as "acca slow=0" may be impossible there.
 .TP 8
 .B stencil
 Number of bits in the stencil buffer.

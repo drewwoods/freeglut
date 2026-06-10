@@ -665,7 +665,10 @@ void FGAPIENTRY glutInitDisplayString( const char* displayMode )
             fgState.SampleNumber = ( parsed.comparison == FG_EQ ) ? parsed.value : 0;
             break;
 
-        case 19:  /* "slow":  Not modeled by freeglut */
+        case 19:  /* "slow":  Slow-caveat formats. Bare default is >=0: permit
+                   * fast formats but accept slow ones in preference (per GLUT
+                   * glut_dstr.c); "slow=0" requires a fast format. */
+            fghAddCriterion( dsc, FG_CAP_SLOW, parsed, fghMakeCriterion(FG_GTE, 0) );
             break;
 
         case 20:  /* "win32pdf": misspelling, kept for compatibility */

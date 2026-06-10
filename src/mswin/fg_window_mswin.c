@@ -55,6 +55,7 @@ typedef BOOL (WINAPI * PFNWGLGETPIXELFORMATATTRIBIVARBPROC) (HDC hdc, int iPixel
 #define WGL_DEPTH_BITS_ARB             0x2022
 #define WGL_STENCIL_BITS_ARB           0x2023
 #define WGL_AUX_BUFFERS_ARB            0x2024
+#define WGL_NO_ACCELERATION_ARB        0x2025
 #define WGL_FULL_ACCELERATION_ARB      0x2027
 #define WGL_TYPE_RGBA_ARB              0x202B
 #define WGL_TYPE_COLORINDEX_ARB        0x202C
@@ -275,18 +276,19 @@ static GLboolean fghReadPixelFormatValues( HDC hdc, int pixelformat,
 {
     if ( getAttribiv )
     {
-        static const int attribs[18] = {
+        static const int attribs[19] = {
             WGL_DRAW_TO_WINDOW_ARB, WGL_SUPPORT_OPENGL_ARB,
             WGL_DOUBLE_BUFFER_ARB, WGL_STEREO_ARB, WGL_PIXEL_TYPE_ARB,
             WGL_RED_BITS_ARB, WGL_GREEN_BITS_ARB, WGL_BLUE_BITS_ARB,
             WGL_ALPHA_BITS_ARB, WGL_DEPTH_BITS_ARB, WGL_STENCIL_BITS_ARB,
             WGL_ACCUM_RED_BITS_ARB, WGL_ACCUM_GREEN_BITS_ARB,
             WGL_ACCUM_BLUE_BITS_ARB, WGL_ACCUM_ALPHA_BITS_ARB,
-            WGL_SAMPLES_ARB, WGL_AUX_BUFFERS_ARB, WGL_COLOR_BITS_ARB
+            WGL_SAMPLES_ARB, WGL_AUX_BUFFERS_ARB, WGL_COLOR_BITS_ARB,
+            WGL_ACCELERATION_ARB
         };
-        int v[18];
+        int v[19];
 
-        if ( !getAttribiv( hdc, pixelformat, 0, 18, attribs, v ) )
+        if ( !getAttribiv( hdc, pixelformat, 0, 19, attribs, v ) )
             return GL_FALSE;
 
         if ( !v[0] || !v[1] )
@@ -312,6 +314,9 @@ static GLboolean fghReadPixelFormatValues( HDC hdc, int pixelformat,
         values[FG_CAP_SAMPLES]     = v[15];
         values[FG_CAP_AUX]         = v[16];
         values[FG_CAP_BUFFER]      = v[17];
+        /* Per the GLUT man page, "slow" on Win32 means a generic
+         * (software-rendered) format; WGL reports that as no acceleration. */
+        values[FG_CAP_SLOW]        = ( v[18] == WGL_NO_ACCELERATION_ARB ) ? 1 : 0;
         return GL_TRUE;
     }
     else
@@ -344,6 +349,10 @@ static GLboolean fghReadPixelFormatValues( HDC hdc, int pixelformat,
         values[FG_CAP_SAMPLES]     = 0;
         values[FG_CAP_AUX]         = pfd.cAuxBuffers;
         values[FG_CAP_BUFFER]      = pfd.cColorBits;
+        /* Per the GLUT man page, "slow" on Win32 means the PFD is generic
+         * (Microsoft's software renderer) and not even generic-accelerated. */
+        values[FG_CAP_SLOW]        = ( ( pfd.dwFlags & PFD_GENERIC_FORMAT ) &&
+                                      !( pfd.dwFlags & PFD_GENERIC_ACCELERATED ) ) ? 1 : 0;
         return GL_TRUE;
     }
 }

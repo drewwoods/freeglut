@@ -93,6 +93,18 @@ static GLboolean fghHasCapability( const FGDisplayStringCriteria *c, FGCapabilit
     return GL_FALSE;
 }
 
+static void fghPrependCriterion( FGDisplayStringCriteria *c, FGCapability capability,
+                                 FGCriterion criterion )
+{
+    if ( c->count >= FG_MAX_DISPLAY_CRITERIA )
+        return;
+
+    memmove( &c->entries[ 1 ], &c->entries[ 0 ], (size_t)c->count * sizeof( c->entries[ 0 ] ) );
+    c->entries[ 0 ].capability = capability;
+    c->entries[ 0 ].criterion  = criterion;
+    c->count++;
+}
+
 void fghAppendUnspecifiedCriteriaDefaults( FGDisplayStringCriteria *c, GLboolean indexMode )
 {
     /* Mirror original GLUT's parseModeString(): every capability not named in
@@ -104,6 +116,15 @@ void fghAppendUnspecifiedCriteriaDefaults( FGDisplayStringCriteria *c, GLboolean
     FGCriterion exactlyZero  = fghMakeCriterion( FG_EQ, 0 );
     FGCriterion preferZero   = fghMakeCriterion( FG_MIN, 0 );
     FGCriterion atLeastOne   = fghMakeCriterion( FG_GTE, 1 );
+
+    /* Unlike all the other defaults, GLUT gives the undesignated "slow"
+     * preference HIGHER priority than the user's criteria (it is prepended):
+     * slow-caveat formats are avoided whenever possible, but still allowed.
+     * On platforms that cannot detect slowness every format reports 0 and
+     * this is a no-op. (Notably, Mesa marks accumulation-capable GLX
+     * configs with the slow caveat.) */
+    if ( !fghHasCapability( c, FG_CAP_SLOW ) )
+        fghPrependCriterion( c, FG_CAP_SLOW, preferZero );
 
     if ( !fghHasCapability( c, FG_CAP_SAMPLES ) )
         fghAddCriterion( c, FG_CAP_SAMPLES, exactlyZero, exactlyZero );
