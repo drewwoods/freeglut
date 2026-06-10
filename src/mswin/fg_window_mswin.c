@@ -34,15 +34,30 @@ typedef const char * (WINAPI * PFNWGLGETEXTENSIONSSTRINGARBPROC) (HDC hdc);
 
 typedef BOOL (WINAPI * PFNWGLCHOOSEPIXELFORMATARBPROC) (HDC hdc, const int *piAttribIList, const FLOAT *pfAttribFList, UINT nMaxFormats, int *piFormats, UINT *nNumFormats);
 
+typedef BOOL (WINAPI * PFNWGLGETPIXELFORMATATTRIBIVARBPROC) (HDC hdc, int iPixelFormat, int iLayerPlane, UINT nAttributes, const int *piAttributes, int *piValues);
+
+#define WGL_NUMBER_PIXEL_FORMATS_ARB   0x2000
 #define WGL_DRAW_TO_WINDOW_ARB         0x2001
 #define WGL_ACCELERATION_ARB           0x2003
 #define WGL_SUPPORT_OPENGL_ARB         0x2010
 #define WGL_DOUBLE_BUFFER_ARB          0x2011
+#define WGL_STEREO_ARB                 0x2012
+#define WGL_PIXEL_TYPE_ARB             0x2013
 #define WGL_COLOR_BITS_ARB             0x2014
+#define WGL_RED_BITS_ARB               0x2015
+#define WGL_GREEN_BITS_ARB             0x2017
+#define WGL_BLUE_BITS_ARB              0x2019
 #define WGL_ALPHA_BITS_ARB             0x201B
+#define WGL_ACCUM_RED_BITS_ARB         0x201E
+#define WGL_ACCUM_GREEN_BITS_ARB       0x201F
+#define WGL_ACCUM_BLUE_BITS_ARB        0x2020
+#define WGL_ACCUM_ALPHA_BITS_ARB       0x2021
 #define WGL_DEPTH_BITS_ARB             0x2022
 #define WGL_STENCIL_BITS_ARB           0x2023
+#define WGL_AUX_BUFFERS_ARB            0x2024
 #define WGL_FULL_ACCELERATION_ARB      0x2027
+#define WGL_TYPE_RGBA_ARB              0x202B
+#define WGL_TYPE_COLORINDEX_ARB        0x202C
 
 #define WGL_SAMPLE_BUFFERS_ARB         0x2041
 #define WGL_SAMPLES_ARB                0x2042
@@ -244,6 +259,234 @@ static void fghFillPixelFormatAttributes( int *attributes, const PIXELFORMATDESC
   ATTRIB_VAL( WGL_SAMPLES_ARB, fgState.SampleNumber );
   ATTRIB( 0 );
 }
+
+/* Read every display-string capability of one pixel format into values[],
+ * indexed by FGCapability, so the shared filter/ranking logic can be used.
+ * Returns GL_FALSE for formats that cannot back a GLUT window (wrong color
+ * model, missing double buffering / stereo when those were requested).
+ *
+ * When WGL_ARB_pixel_format is available (getAttribiv non-NULL) the
+ * attributes come from wglGetPixelFormatAttribivARB, which also exposes
+ * formats GDI's DescribePixelFormat cannot see (notably multisample ones);
+ * otherwise fall back to the PIXELFORMATDESCRIPTOR, with samples = 0. */
+static GLboolean fghReadPixelFormatValues( HDC hdc, int pixelformat,
+                                           PFNWGLGETPIXELFORMATATTRIBIVARBPROC getAttribiv,
+                                           int *values )
+{
+    if ( getAttribiv )
+    {
+        static const int attribs[18] = {
+            WGL_DRAW_TO_WINDOW_ARB, WGL_SUPPORT_OPENGL_ARB,
+            WGL_DOUBLE_BUFFER_ARB, WGL_STEREO_ARB, WGL_PIXEL_TYPE_ARB,
+            WGL_RED_BITS_ARB, WGL_GREEN_BITS_ARB, WGL_BLUE_BITS_ARB,
+            WGL_ALPHA_BITS_ARB, WGL_DEPTH_BITS_ARB, WGL_STENCIL_BITS_ARB,
+            WGL_ACCUM_RED_BITS_ARB, WGL_ACCUM_GREEN_BITS_ARB,
+            WGL_ACCUM_BLUE_BITS_ARB, WGL_ACCUM_ALPHA_BITS_ARB,
+            WGL_SAMPLES_ARB, WGL_AUX_BUFFERS_ARB, WGL_COLOR_BITS_ARB
+        };
+        int v[18];
+
+        if ( !getAttribiv( hdc, pixelformat, 0, 18, attribs, v ) )
+            return GL_FALSE;
+
+        if ( !v[0] || !v[1] )
+            return GL_FALSE;
+        if ( ( fgState.DisplayMode & GLUT_DOUBLE ) && !v[2] )
+            return GL_FALSE;
+        if ( ( fgState.DisplayMode & GLUT_STEREO ) && !v[3] )
+            return GL_FALSE;
+        if ( v[4] != ( ( fgState.DisplayMode & GLUT_INDEX ) ?
+                           WGL_TYPE_COLORINDEX_ARB : WGL_TYPE_RGBA_ARB ) )
+            return GL_FALSE;
+
+        values[FG_CAP_RED]         = v[5];
+        values[FG_CAP_GREEN]       = v[6];
+        values[FG_CAP_BLUE]        = v[7];
+        values[FG_CAP_ALPHA]       = v[8];
+        values[FG_CAP_DEPTH]       = v[9];
+        values[FG_CAP_STENCIL]     = v[10];
+        values[FG_CAP_ACCUM_RED]   = v[11];
+        values[FG_CAP_ACCUM_GREEN] = v[12];
+        values[FG_CAP_ACCUM_BLUE]  = v[13];
+        values[FG_CAP_ACCUM_ALPHA] = v[14];
+        values[FG_CAP_SAMPLES]     = v[15];
+        values[FG_CAP_AUX]         = v[16];
+        values[FG_CAP_BUFFER]      = v[17];
+        return GL_TRUE;
+    }
+    else
+    {
+        PIXELFORMATDESCRIPTOR pfd;
+
+        if ( !DescribePixelFormat( hdc, pixelformat, sizeof pfd, &pfd ) )
+            return GL_FALSE;
+
+        if ( !( pfd.dwFlags & PFD_DRAW_TO_WINDOW ) || !( pfd.dwFlags & PFD_SUPPORT_OPENGL ) )
+            return GL_FALSE;
+        if ( ( fgState.DisplayMode & GLUT_DOUBLE ) && !( pfd.dwFlags & PFD_DOUBLEBUFFER ) )
+            return GL_FALSE;
+        if ( ( fgState.DisplayMode & GLUT_STEREO ) && !( pfd.dwFlags & PFD_STEREO ) )
+            return GL_FALSE;
+        if ( pfd.iPixelType != ( ( fgState.DisplayMode & GLUT_INDEX ) ?
+                                     PFD_TYPE_COLORINDEX : PFD_TYPE_RGBA ) )
+            return GL_FALSE;
+
+        values[FG_CAP_RED]         = pfd.cRedBits;
+        values[FG_CAP_GREEN]       = pfd.cGreenBits;
+        values[FG_CAP_BLUE]        = pfd.cBlueBits;
+        values[FG_CAP_ALPHA]       = pfd.cAlphaBits;
+        values[FG_CAP_DEPTH]       = pfd.cDepthBits;
+        values[FG_CAP_STENCIL]     = pfd.cStencilBits;
+        values[FG_CAP_ACCUM_RED]   = pfd.cAccumRedBits;
+        values[FG_CAP_ACCUM_GREEN] = pfd.cAccumGreenBits;
+        values[FG_CAP_ACCUM_BLUE]  = pfd.cAccumBlueBits;
+        values[FG_CAP_ACCUM_ALPHA] = pfd.cAccumAlphaBits;
+        values[FG_CAP_SAMPLES]     = 0;
+        values[FG_CAP_AUX]         = pfd.cAuxBuffers;
+        values[FG_CAP_BUFFER]      = pfd.cColorBits;
+        return GL_TRUE;
+    }
+}
+
+/* Select the pixel format matching the parsed display-string criteria,
+ * mirroring the X11 backend: enumerate every pixel format, hard-filter with
+ * fghCriteriaPass(), then rank with fghCriteriaCompare() in strict
+ * left-to-right criterion precedence. Returns the chosen 1-based pixel
+ * format index, or 0 if none match.
+ *
+ * wglGetPixelFormatAttribivARB can only be resolved with a current GL
+ * context, so when none is current (the usual case: the first window) a
+ * throwaway window and legacy context are created just for the query, like
+ * the existing multisample path in fgSetupPixelFormat. */
+static int fghChoosePixelFormatByCriteria( HDC hdc )
+{
+    const FGDisplayStringCriteria      *c = &fgState.DisplayStrCriteria;
+    PFNWGLGETPIXELFORMATATTRIBIVARBPROC getAttribiv = NULL;
+    HGLRC contextBefore = wglGetCurrentContext( );
+    HDC   dcBefore      = wglGetCurrentDC( );
+    HWND  dummyWnd = NULL;
+    HDC   dummyDC  = NULL;
+    HGLRC dummyRC  = NULL;
+    int ( *values )[FG_CAP_COUNT] = NULL;
+    int  *matches     = NULL;
+    int   matchCount  = 0;
+    int   formatCount = 0;
+    int   i, j, chosen = 0;
+
+    if ( contextBefore )
+        getAttribiv = (PFNWGLGETPIXELFORMATATTRIBIVARBPROC)
+            wglGetProcAddress( "wglGetPixelFormatAttribivARB" );
+    else
+    {
+        WNDCLASS wndCls;
+
+        ZeroMemory( &wndCls, sizeof( wndCls ) );
+        wndCls.lpfnWndProc   = DefWindowProc;
+        wndCls.hInstance     = fgDisplay.pDisplay.Instance;
+        wndCls.style         = CS_OWNDC;
+        wndCls.lpszClassName = _T("FREEGLUT_dstr_dummy");
+        RegisterClass( &wndCls );
+
+        dummyWnd = CreateWindow( _T("FREEGLUT_dstr_dummy"), _T(""),
+            WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW,
+            0, 0, 0, 0, 0, 0, fgDisplay.pDisplay.Instance, 0 );
+        if ( dummyWnd )
+        {
+            PIXELFORMATDESCRIPTOR dummyPfd;
+            int dummyFormat;
+
+            dummyDC = GetDC( dummyWnd );
+
+            ZeroMemory( &dummyPfd, sizeof( dummyPfd ) );
+            dummyPfd.nSize       = sizeof( dummyPfd );
+            dummyPfd.nVersion    = 1;
+            dummyPfd.dwFlags     = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL;
+            dummyPfd.iPixelType  = PFD_TYPE_RGBA;
+            dummyPfd.cColorBits  = 24;
+            dummyPfd.iLayerType  = PFD_MAIN_PLANE;
+
+            dummyFormat = ChoosePixelFormat( dummyDC, &dummyPfd );
+            if ( dummyFormat && SetPixelFormat( dummyDC, dummyFormat, &dummyPfd ) )
+            {
+                dummyRC = wglCreateContext( dummyDC );
+                if ( dummyRC && wglMakeCurrent( dummyDC, dummyRC ) )
+                    getAttribiv = (PFNWGLGETPIXELFORMATATTRIBIVARBPROC)
+                        wglGetProcAddress( "wglGetPixelFormatAttribivARB" );
+            }
+        }
+    }
+
+    if ( getAttribiv )
+    {
+        int attrib = WGL_NUMBER_PIXEL_FORMATS_ARB;
+
+        if ( !getAttribiv( hdc, 1, 0, 1, &attrib, &formatCount ) )
+            formatCount = 0;
+    }
+    if ( formatCount == 0 )
+    {
+        /* No WGL_ARB_pixel_format; enumerate the GDI-visible formats. */
+        getAttribiv = NULL;
+        formatCount = DescribePixelFormat( hdc, 1, sizeof( PIXELFORMATDESCRIPTOR ), NULL );
+    }
+
+    if ( formatCount > 0 )
+    {
+        values  = malloc( (size_t)formatCount * sizeof( *values ) );
+        matches = malloc( (size_t)formatCount * sizeof( *matches ) );
+    }
+    if ( values && matches )
+    {
+        /* Hard filter: keep only formats that satisfy every criterion. */
+        for ( i = 1; i <= formatCount; i++ )
+        {
+            if ( fghReadPixelFormatValues( hdc, i, getAttribiv, values[i - 1] ) &&
+                 fghCriteriaPass( c, values[i - 1] ) )
+                matches[matchCount++] = i;
+        }
+
+        /* Rank matches in strict left-to-right criterion precedence. Stable
+         * insertion sort preserves the system's order as the final tie-break. */
+        for ( i = 1; i < matchCount; i++ )
+        {
+            int key = matches[i];
+
+            for ( j = i - 1;
+                  j >= 0 && fghCriteriaCompare( c, values[matches[j] - 1], values[key - 1] ) > 0;
+                  j-- )
+                matches[j + 1] = matches[j];
+            matches[j + 1] = key;
+        }
+
+        if ( matchCount > 0 )
+        {
+            /* "num" selects the Nth matching format in ranked order, 1-indexed
+             * per GLUT ("num=1" is the best match); out of range = no match. */
+            if ( c->num > 0 )
+                chosen = ( c->num <= matchCount ) ? matches[c->num - 1] : 0;
+            else
+                chosen = matches[0];
+        }
+    }
+    free( values );
+    free( matches );
+
+    if ( !contextBefore )
+    {
+        wglMakeCurrent( dcBefore, contextBefore );
+        if ( dummyRC )
+            wglDeleteContext( dummyRC );
+        if ( dummyWnd )
+        {
+            if ( dummyDC )
+                ReleaseDC( dummyWnd, dummyDC );
+            DestroyWindow( dummyWnd );
+        }
+        UnregisterClass( _T("FREEGLUT_dstr_dummy"), fgDisplay.pDisplay.Instance );
+    }
+
+    return chosen;
+}
 #endif
 
 GLboolean fgSetupPixelFormat( SFG_Window* window, GLboolean checkOnly,
@@ -263,7 +506,30 @@ GLboolean fgSetupPixelFormat( SFG_Window* window, GLboolean checkOnly,
       current_hDC = window->Window.pContext.Device;
 
     fghFillPFD(&pfd, current_hDC, layer_type);
+
+    /* glutInitDisplayString was used: enumerate all pixel formats and pick
+     * by the parsed criteria (shared filter and left-to-right ranking),
+     * instead of letting ChoosePixelFormat guess from the coarse PFD. */
+    if ( fgState.DisplayStrCriteria.haveDisplayString )
+    {
+        pixelformat = fghChoosePixelFormatByCriteria( current_hDC );
+        if ( pixelformat )
+        {
+            /* GDI may not be able to describe WGL-only (e.g. multisample)
+             * formats; keep the PFD from fghFillPFD in that case, matching
+             * the existing wglChoosePixelFormatARB path below. */
+            DescribePixelFormat( current_hDC, pixelformat, sizeof pfd, &pfd );
+            success = checkOnly || SetPixelFormat( current_hDC, pixelformat, &pfd );
+        }
+        if ( checkOnly )
+            DeleteDC( current_hDC );
+        return success;
+    }
+
     if(!(pixelformat = ChoosePixelFormat(current_hDC, &pfd))) {
+		if(checkOnly) {
+			DeleteDC(current_hDC);
+		}
 		return 0;
 	}
 
