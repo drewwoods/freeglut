@@ -89,7 +89,13 @@ static int fghCapabilityWeight( FGCapability capability, int maxWeight )
     return weight;
 }
 
-static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
+/* samplesRequest overrides the sample count computed from the criteria when
+ * >= 0; pass -1 for the default. Needed because NSOpenGLPixelFormat rounds a
+ * sample request UP to the next supported count, so upper-bound criteria
+ * ("samples<4") must be retried with smaller requests until one lands under
+ * the bound (4 -> rejected by the filter -> retry 3 -> Apple has no 3 ->
+ * rounds to 4 again... -> retry 2 -> satisfied). */
+static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs, int samplesRequest )
 {
     int n = 0;
     int colorBits, alphaBits, accumBits, depthBits, stencilBits, auxBuffers, samples;
@@ -107,7 +113,8 @@ static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs )
     depthBits   = fghCapabilityWeight( FG_CAP_DEPTH, 32 );
     stencilBits = fghCapabilityWeight( FG_CAP_STENCIL, 8 );
     auxBuffers  = fghCapabilityWeight( FG_CAP_AUX, 4 );
-    samples     = fghCapabilityWeight( FG_CAP_SAMPLES, 16 );
+    samples     = ( samplesRequest >= 0 ) ? samplesRequest
+                                          : fghCapabilityWeight( FG_CAP_SAMPLES, 16 );
 
     attrs[n++] = NSOpenGLPFAAccelerated;
     attrs[n++] = NSOpenGLPFAClosestPolicy;
@@ -184,12 +191,13 @@ static int fghBuildAttrsFromDisplayMode( NSOpenGLPixelFormatAttribute *attrs )
     return n;
 }
 
-static void fghBuildPixelFormatAttrs( NSOpenGLPixelFormatAttribute *attrs, GLboolean isMenu )
+static void fghBuildPixelFormatAttrs( NSOpenGLPixelFormatAttribute *attrs, GLboolean isMenu,
+                                      int samplesRequest )
 {
     int attrIndex = fghBuildAttrsFromDisplayMode( attrs );
 
     if ( fgState.DisplayStrCriteria.haveDisplayString )
-        attrIndex = fghBuildAttrsFromCriteria( attrs );
+        attrIndex = fghBuildAttrsFromCriteria( attrs, samplesRequest );
 
     if ( fgState.DisplayMode & GLUT_DOUBLE )
         attrs[attrIndex++] = NSOpenGLPFADoubleBuffer;
@@ -294,20 +302,14 @@ GLboolean fgCocoaIsValidContextRequest( int majorVersion, int minorVersion, int 
     return GL_FALSE;
 }
 
-NSOpenGLPixelFormat *fgCocoaCreatePixelFormat( GLboolean isMenu )
+/* Build the closest pixel format for one specific sample request and accept
+ * it only if it satisfies the criteria and requested flags. */
+static NSOpenGLPixelFormat *fghTryCreatePixelFormat( GLboolean isMenu, int samplesRequest )
 {
     NSOpenGLPixelFormatAttribute attrs[FG_COCOA_MAX_PIXEL_FORMAT_ATTRS];
     NSOpenGLPixelFormat         *pixelFormat;
 
-    if ( fghCocoaUsesUnsupportedPixelMode( ) )
-        return nil;
-
-    if ( !fgCocoaIsValidContextRequest(
-             fgState.MajorVersion, fgState.MinorVersion, fgState.ContextFlags, fgState.ContextProfile ) ) {
-        return nil;
-    }
-
-    fghBuildPixelFormatAttrs( attrs, isMenu );
+    fghBuildPixelFormatAttrs( attrs, isMenu, samplesRequest );
 
     pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
     if ( !pixelFormat )
@@ -324,6 +326,40 @@ NSOpenGLPixelFormat *fgCocoaCreatePixelFormat( GLboolean isMenu )
     }
 
     return pixelFormat;
+}
+
+NSOpenGLPixelFormat *fgCocoaCreatePixelFormat( GLboolean isMenu )
+{
+    NSOpenGLPixelFormat *pixelFormat;
+    int samplesRequest;
+
+    if ( fghCocoaUsesUnsupportedPixelMode( ) )
+        return nil;
+
+    if ( !fgCocoaIsValidContextRequest(
+             fgState.MajorVersion, fgState.MinorVersion, fgState.ContextFlags, fgState.ContextProfile ) ) {
+        return nil;
+    }
+
+    pixelFormat = fghTryCreatePixelFormat( isMenu, -1 );
+    if ( pixelFormat || !fgState.DisplayStrCriteria.haveDisplayString )
+        return pixelFormat;
+
+    /* NSOpenGLPixelFormat rounds sample counts UP to the next supported
+     * value, so a request derived from an upper-bound criterion (e.g.
+     * "samples<4" requests 3, Apple rounds to 4, the filter rejects it) can
+     * miss configurations that do satisfy the criteria. Retry with smaller
+     * sample requests; descending order preserves the prefer-more ranking of
+     * < and <=. Other capabilities only round down, so only samples needs
+     * this. */
+    for ( samplesRequest = fghCapabilityWeight( FG_CAP_SAMPLES, 16 ) - 1;
+          samplesRequest >= 0; samplesRequest-- ) {
+        pixelFormat = fghTryCreatePixelFormat( isMenu, samplesRequest );
+        if ( pixelFormat )
+            return pixelFormat;
+    }
+
+    return nil;
 }
 
 GLboolean fgCocoaIsDisplayModePossible( GLboolean isMenu )
