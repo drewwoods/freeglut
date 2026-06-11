@@ -399,6 +399,8 @@ static const ProbeCase g_self_test_cases[] = {
         "Bare samples defaults to <=4 preferring more (i.e. requests multisampling if available)" },
     { "samples_eq_4", "samples=4", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Platform-dependent exact multisample count request" },
     { "samples_lte_4", "samples<=4", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Comparator test for multisample selection" },
+    { "samples_lt_4", "samples<4", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Comparator test for multisample selection" },
+    { "samples_eq_2", "samples=2", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Platform-dependent exact multisample count request" },
     { "stencil_samples_combo", "stencil~2 rgb double depth>=16 samples", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
         "Man-page style mixed comparator request; sample count preference varies" },
     { "stereo", "stereo", PROBE_CASE_TYPE_PLATFORM_SPECIFIC, "Stereo support depends on hardware and driver stack" },
