@@ -73,6 +73,15 @@ void fgPlatformGlutSwapBuffers( SFG_PlatformDisplay *pDisplayPtr, SFG_Window *Cu
          * Emulate VSync using CVDisplayLink
          */
 
+        /* Submit the frame's GL commands BEFORE blocking, so the GPU renders
+         * them while we wait for the vsync tick. Without this the whole frame
+         * is still unsubmitted at wakeup, and flushBuffer's submit + GPU
+         * execution races the compositor's next sample point -- whether the
+         * surface lands 1 or 2 refreshes later then depends on per-frame GPU
+         * load, which is visible as frame-pacing jitter. After the flush,
+         * flushBuffer below only has to present an already-rendered surface. */
+        glFlush( );
+
         pthread_mutex_lock( &swapMutex );
         frameReady = true;
         while ( frameReady && !shouldQuit ) {

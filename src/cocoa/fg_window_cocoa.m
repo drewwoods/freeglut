@@ -971,6 +971,25 @@ BOOL isValidOpenGLContext( int MajorVersion, int MinorVersion, int ContextFlags,
     return NO; // Any other configuration is invalid
 }
 
+/* Configure a context's built-in swap throttle to match the pacing scheme.
+ *
+ * With USE_CVDISPLAYLINK the display link owns frame pacing, so the context's
+ * own swap interval must be 0: if flushBuffer also throttled, the two gates
+ * run out of phase and produce double-throttle stutter. Set it explicitly --
+ * the NSOpenGL default is not contractual across macOS releases.
+ *
+ * Without the display link, fall back to the context's swap interval (note:
+ * non-functional as of macOS 26, which is why USE_CVDISPLAYLINK exists). */
+static void fghSetContextVSync( NSOpenGLContext *glContext )
+{
+#ifdef USE_CVDISPLAYLINK
+    GLint swapInterval = 0;
+#else
+    GLint swapInterval = 1;
+#endif
+    [glContext setValues:&swapInterval forParameter:NSOpenGLContextParameterSwapInterval];
+}
+
 static void fgOpenSubWindow( SFG_Window *window, int x, int y, int w, int h )
 {
     AUTORELEASE_POOL;
@@ -1011,6 +1030,7 @@ static void fgOpenSubWindow( SFG_Window *window, int x, int y, int w, int h )
     }
     [glContext setView:openGLView];
     [glContext makeCurrentContext];
+    fghSetContextVSync( glContext );
 
     [openGLView release];
     [openGLView reshape];
@@ -1256,17 +1276,34 @@ void fgPlatformOpenWindow( SFG_Window *window,
     // Create and configure CVDisplayLink, if not already created
 #ifdef USE_CVDISPLAYLINK
     if ( ( fgState.DisplayMode & GLUT_DOUBLE ) && !fgDisplay.pDisplay.DisplayLink ) {
-        CVDisplayLinkCreateWithActiveCGDisplays( (CVDisplayLinkRef *)&fgDisplay.pDisplay.DisplayLink );
-        CVDisplayLinkSetOutputCallback( fgDisplay.pDisplay.DisplayLink, &fgDisplayLinkCallback, nil );
-        CVDisplayLinkStart( fgDisplay.pDisplay.DisplayLink );
-    }
-#else
-    // As of macOS 26, VSync is not functional, so CVDisplayLink is the recommended way to handle VSync
+        /* Drive the link from the display this window is actually on.
+         * CVDisplayLinkCreateWithActiveCGDisplays must NOT be used: as of
+         * macOS 15 it fails unconditionally with kCVReturnInvalidArgument,
+         * which used to silently disable vsync pacing altogether. The
+         * per-display variant still works. */
+        NSScreen *screen = [nsWindow screen] ? [nsWindow screen] : [NSScreen mainScreen];
+        CGDirectDisplayID displayID =
+            [[[screen deviceDescription] objectForKey:@"NSScreenNumber"] unsignedIntValue];
+        CVReturn cvret = CVDisplayLinkCreateWithCGDisplay(
+            displayID, (CVDisplayLinkRef *)&fgDisplay.pDisplay.DisplayLink );
 
-    // Set the swap interval parameter
-    GLint swapInterval = 1; // 1 for VSync, 0 for no VSync
-    [glContext setValues:&swapInterval forParameter:NSOpenGLContextParameterSwapInterval];
+        if ( cvret == kCVReturnSuccess )
+            cvret = CVDisplayLinkSetOutputCallback( fgDisplay.pDisplay.DisplayLink, &fgDisplayLinkCallback, nil );
+        if ( cvret == kCVReturnSuccess )
+            cvret = CVDisplayLinkStart( fgDisplay.pDisplay.DisplayLink );
+
+        if ( cvret != kCVReturnSuccess ) {
+            /* Without the link, fgPlatformGlutSwapBuffers presents unthrottled.
+             * Fail loudly: a silent fallback hides the loss of vsync pacing. */
+            fgWarning( "CVDisplayLink setup failed (CVReturn %d); vsync pacing disabled", (int)cvret );
+            if ( fgDisplay.pDisplay.DisplayLink ) {
+                CVDisplayLinkRelease( fgDisplay.pDisplay.DisplayLink );
+                fgDisplay.pDisplay.DisplayLink = NULL;
+            }
+        }
+    }
 #endif
+    fghSetContextVSync( glContext );
 
     DBG( "OpenGL Version: %s", glGetString( GL_VERSION ) );
     DBG( "Window: %dx%d\tFramebuffer: %dx%d",
