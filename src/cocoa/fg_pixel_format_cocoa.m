@@ -117,6 +117,13 @@ static int fghBuildAttrsFromCriteria( NSOpenGLPixelFormatAttribute *attrs, int s
                                           : fghCapabilityWeight( FG_CAP_SAMPLES, 16 );
 
     attrs[n++] = NSOpenGLPFAAccelerated;
+    /* ClosestPolicy applies to NSOpenGLPFAColorSize only (not depth, accum or
+     * samples): pick the color size closest to the request instead of rounding
+     * up toward the device depth. On current macOS hardware this is moot (the
+     * only non-float color format is 32-bit 8888 -- verified: removing this
+     * attribute changes nothing in dstrprobe --self-test), but it keeps
+     * upper-bound color criteria ("red<8") satisfiable on any hardware that
+     * does expose smaller color formats, which rounding up would skip. */
     attrs[n++] = NSOpenGLPFAClosestPolicy;
 
     if ( colorBits > 0 ) {
