@@ -129,6 +129,7 @@ ENDIF()
 SET(FREEGLUT_SRCS
     ${FREEGLUT_HEADERS}
     src/fg_callbacks.c
+    src/fg_capture.c
     src/fg_cursor.c
     src/fg_display.c
     src/fg_ext.c
