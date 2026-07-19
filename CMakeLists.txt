@@ -157,7 +157,9 @@ SET(FREEGLUT_SRCS
     src/fg_spaceball.c
     src/fg_state.c
     src/fg_stroke_mono_roman.c
+    src/fg_stroke_mono_roman_hi.c
     src/fg_stroke_roman.c
+    src/fg_stroke_roman_hi.c
     src/fg_structure.c
     src/fg_teapot.c
     src/fg_teapot_data.h
@@ -845,7 +847,9 @@ IF(FREEGLUT_BUILD_GLUTSHAPES)
         src/fg_font.c
         src/fg_font_data.c
         src/fg_stroke_roman.c
+        src/fg_stroke_roman_hi.c
         src/fg_stroke_mono_roman.c
+        src/fg_stroke_mono_roman_hi.c
         src/x11/fg_glutfont_definitions_x11.c   # public font-handle definitions (agnostic)
         src/standalone/fg_glutshapes_shim.c
     )
