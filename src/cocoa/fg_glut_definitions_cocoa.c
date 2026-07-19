@@ -34,10 +34,14 @@ extern SFG_Font       fgFontHelvetica18;
 extern SFG_Font       fgFontTimesRoman10;
 extern SFG_Font       fgFontTimesRoman24;
 extern SFG_StrokeFont fgStrokeRoman;
+extern SFG_StrokeFont fgStrokeRomanHi;
 extern SFG_StrokeFont fgStrokeMonoRoman;
+extern SFG_StrokeFont fgStrokeMonoRomanHi;
 
-void *glutStrokeRoman     = &fgFontFixed8x13;
-void *glutStrokeMonoRoman = &glutStrokeMonoRoman;
+void *glutStrokeRoman       = &fgFontFixed8x13;
+void *glutStrokeRomanHi     = &glutStrokeRomanHi;
+void *glutStrokeMonoRoman   = &glutStrokeMonoRoman;
+void *glutStrokeMonoRomanHi = &glutStrokeMonoRomanHi;
 
 void *glutBitmap9By15        = &glutBitmap9By15;
 void *glutBitmap8By13        = &glutBitmap8By13;

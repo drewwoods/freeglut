@@ -23,10 +23,10 @@ demo_libs = $(liba) -lGL -lX11 -lXmu -lXext -lXi -lXrandr -lXxf86vm -lm
 
 coreobj = src/fg_gl2.o src/fg_misc.o src/fg_input_devices.o src/fg_ext.o \
 	src/fg_joystick.o src/fg_init.o src/fg_callbacks.o \
-	src/fg_menu.o src/fg_stroke_roman.o src/fg_structure.o src/fg_overlay.o \
+	src/fg_menu.o src/fg_stroke_roman.o src/fg_stroke_roman_hi.o src/fg_structure.o src/fg_overlay.o \
 	src/fg_window.o src/fg_state.o src/fg_videoresize.o src/fg_spaceball.o \
 	src/fg_cursor.o src/fg_main.o src/fg_gamemode.o \
-	src/fg_stroke_mono_roman.o src/fg_geometry.o src/fg_font.o src/fg_display.o \
+	src/fg_stroke_mono_roman.o src/fg_stroke_mono_roman_hi.o src/fg_geometry.o src/fg_font.o src/fg_display.o \
 	src/fg_font_data.o src/fg_teapot.o
 
 x11obj = src/x11/fg_state_x11_glx.o src/x11/fg_glutfont_definitions_x11.o \
