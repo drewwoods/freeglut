@@ -136,6 +136,7 @@ SET(FREEGLUT_SRCS
     ${FREEGLUT_HEADERS}
     src/fg_callbacks.c
     src/fg_capture.c
+    src/fg_clipboard.c
     src/fg_cursor.c
     src/fg_display.c
     src/fg_ext.c
@@ -307,6 +308,7 @@ ELSEIF(OGC)
 ELSEIF(FREEGLUT_COCOA)
     LIST(APPEND FREEGLUT_SRCS
         # objc files
+        src/cocoa/fg_clipboard_cocoa.m
         src/cocoa/fg_cmap_cocoa.m
         src/cocoa/fg_cursor_cocoa.m
         src/cocoa/fg_display_cocoa.m
