@@ -430,6 +430,12 @@ static const ProbeCase g_self_test_cases[] = {
     { "complex_acca_min_combo",
         "rgba double depth~24 samples=4 alpha acca~16 auxbufs~2 slow=0 buffer stencil", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
         "Portable form of the mixed-comparator combo using acca~16; satisfied wherever accum >= 16" },
+    { "complex_user_depth_eq_24",
+        "rgba=8 double stencil depth=24 samples>0 alpha acca>0 auxbufs~2 slow=0 buffer", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Exact user-reported combination; fails when the driver returns a non-24-bit depth buffer (for example 32-bit depth on macOS)" },
+    { "complex_user_depth_min_24",
+        "rgba=8 double stencil depth~24 samples>0 alpha acca>0 auxbufs~2 slow=0 buffer", PROBE_CASE_TYPE_PLATFORM_SPECIFIC,
+        "Portable form of the user-reported combination: require at least 24 depth bits while preferring the smallest match" },
 };
 #define NUM_SELF_TEST_CASES ( (int)( sizeof( g_self_test_cases ) / sizeof( g_self_test_cases[0] ) ) )
 
