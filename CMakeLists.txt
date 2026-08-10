@@ -657,6 +657,11 @@ ELSE()
 
     IF(FREEGLUT_BUILD_SHARED_LIBS)
       SET_TARGET_PROPERTIES(freeglut PROPERTIES VERSION ${SO_MAJOR}.${SO_MINOR}.${SO_REV} SOVERSION ${SO_MAJOR} OUTPUT_NAME ${LIBNAME})
+      IF(FREEGLUT_COCOA)
+        # Match the conventional macOS/Homebrew layout: applications linked
+        # with -lglut record the configured install path and need no LC_RPATH.
+        SET_TARGET_PROPERTIES(freeglut PROPERTIES INSTALL_NAME_DIR "${CMAKE_INSTALL_FULL_LIBDIR}")
+      ENDIF()
     ENDIF()
     IF(FREEGLUT_BUILD_STATIC_LIBS)
       SET_TARGET_PROPERTIES(freeglut_static PROPERTIES OUTPUT_NAME ${LIBNAME})
@@ -789,6 +794,8 @@ ADD_DEMO(cursors         progs/demos/cursors/cursors.c)
 # Define static build dependencies
 IF(WIN32)
   SET(PC_LIBS_PRIVATE "-lopengl32 -lwinmm -lgdi32")
+ELSEIF(FREEGLUT_COCOA)
+  SET(PC_LIBS_PRIVATE "-framework Cocoa -framework OpenGL -framework IOKit -framework CoreVideo -lm")
 ELSEIF(FREEGLUT_GLES)
   IF(ANDROID)
     SET(PC_LIBS_PRIVATE "-llog -landroid -lGLESv2 -lGLESv1_CM -lEGL -lm")
