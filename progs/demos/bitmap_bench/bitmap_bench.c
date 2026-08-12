@@ -77,6 +77,7 @@ static int     opt_hold    = 0;
 static int     opt_swap    = 0;         /* present each timed pass          */
 static int     opt_interval = 0;        /* glutSwapInterval: 1 == wait vsync */
 static int     opt_child   = 0;         /* internal: emit one machine-readable line */
+static int     opt_micro   = 0;         /* in-process save/restore A/B only   */
 static const char *opt_strategy = NULL; /* NULL = run every strategy as a child */
 
 static char *text_line;                 /* opt_cols characters, NUL terminated */
@@ -204,6 +205,130 @@ static void measure( double *ns_char, double *ns_string, long long *passes )
     } while( now_seconds( ) < t_end );
 }
 
+/* ------------------------------------------------- in-process micro A/B ---
+ *
+ * The library-level comparison above has to fork a child per strategy, because
+ * fg_font.c caches its choice.  On a machine that scales CPU/GPU frequency the
+ * two children can therefore run at different clock states, and no amount of
+ * averaging inside a child fixes a difference *between* them -- the noise check
+ * detects that but cannot remove it.
+ *
+ * These two functions are the save/restore sequences from fg_font.c lifted out
+ * verbatim, with no glBitmap and no library involvement, so both strategies can
+ * be timed in one process, alternating pass by pass.  Same clocks, same cache
+ * state, no cross-process confound.  This measures the patch itself rather than
+ * the patch plus a glyph.
+ */
+
+static void micro_clientattrib( int iters )
+{
+    int i;
+
+    for( i = 0; i < iters; i++ )
+    {
+        glPushClientAttrib( GL_CLIENT_PIXEL_STORE_BIT );
+        glPixelStorei( GL_UNPACK_SWAP_BYTES,  GL_FALSE );
+        glPixelStorei( GL_UNPACK_LSB_FIRST,   GL_FALSE );
+        glPixelStorei( GL_UNPACK_ROW_LENGTH,  0        );
+        glPixelStorei( GL_UNPACK_SKIP_ROWS,   0        );
+        glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0        );
+        glPixelStorei( GL_UNPACK_ALIGNMENT,   1        );
+        glPopClientAttrib( );
+    }
+}
+
+static void micro_getset( int iters )
+{
+    int i;
+
+    for( i = 0; i < iters; i++ )
+    {
+        GLint swbytes, lsbfirst, rowlen, skiprows, skippix, align;
+
+        glGetIntegerv( GL_UNPACK_SWAP_BYTES,  &swbytes  );
+        glGetIntegerv( GL_UNPACK_LSB_FIRST,   &lsbfirst );
+        glGetIntegerv( GL_UNPACK_ROW_LENGTH,  &rowlen   );
+        glGetIntegerv( GL_UNPACK_SKIP_ROWS,   &skiprows );
+        glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &skippix  );
+        glGetIntegerv( GL_UNPACK_ALIGNMENT,   &align    );
+
+        glPixelStorei( GL_UNPACK_SWAP_BYTES,  GL_FALSE );
+        glPixelStorei( GL_UNPACK_LSB_FIRST,   GL_FALSE );
+        glPixelStorei( GL_UNPACK_ROW_LENGTH,  0        );
+        glPixelStorei( GL_UNPACK_SKIP_ROWS,   0        );
+        glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0        );
+        glPixelStorei( GL_UNPACK_ALIGNMENT,   1        );
+
+        glPixelStorei( GL_UNPACK_SWAP_BYTES,  swbytes  );
+        glPixelStorei( GL_UNPACK_LSB_FIRST,   lsbfirst );
+        glPixelStorei( GL_UNPACK_ROW_LENGTH,  rowlen   );
+        glPixelStorei( GL_UNPACK_SKIP_ROWS,   skiprows );
+        glPixelStorei( GL_UNPACK_SKIP_PIXELS, skippix  );
+        glPixelStorei( GL_UNPACK_ALIGNMENT,   align    );
+    }
+}
+
+static int micro_iters = 20000;
+
+static double timed_micro( void ( *fn )( int ) )
+{
+    double t0;
+
+    glFinish( );
+    t0 = now_seconds( );
+    fn( micro_iters );
+    glFinish( );
+    return ( now_seconds( ) - t0 ) * 1.0e9 / (double)micro_iters;
+}
+
+static void run_micro( void )
+{
+    double ns_ca = 1.0e30, ns_gs = 1.0e30, t_end;
+    long long passes = 0;
+
+    t_end = now_seconds( ) + opt_warmup;
+    while( now_seconds( ) < t_end )
+    {
+        micro_clientattrib( micro_iters );
+        micro_getset( micro_iters );
+        glFinish( );
+    }
+
+    t_end = now_seconds( ) + opt_seconds;
+    do {
+        double a = timed_micro( micro_clientattrib );
+        double b = timed_micro( micro_getset );
+
+        if( a < ns_ca ) ns_ca = a;
+        if( b < ns_gs ) ns_gs = b;
+        passes++;
+    } while( now_seconds( ) < t_end );
+
+    if( opt_tsv )
+    {
+        printf( "micro\t%d\t%lld\t%.1f\t%.1f\n",
+                micro_iters, passes, ns_ca, ns_gs );
+        fflush( stdout );
+        return;
+    }
+
+    printf( "\n" );
+    printf( "  pixel-store save/restore, measured in one process\n" );
+    printf( "  (no glBitmap, both strategies interleaved -- immune to clock\n"
+            "   drift between runs, unlike the library-level table)\n" );
+    printf( "  %d iterations per timed pass, %lld passes\n\n",
+            micro_iters, passes );
+    printf( "    %-14s %18s\n", "strategy", "ns per save/restore" );
+    printf( "    %-14s %18.1f\n", "clientattrib", ns_ca );
+    printf( "    %-14s %18.1f\n", "getset", ns_gs );
+    printf( "\n" );
+    printf( "  %s is %.2fx cheaper\n",
+            ns_gs < ns_ca ? "getset" : "clientattrib",
+            ns_gs < ns_ca ? ns_ca / ns_gs : ns_gs / ns_ca );
+    printf( "\n" );
+    fflush( stdout );
+}
+
 /* ------------------------------------------------------------- one process */
 
 /* What the parent collects from each child, and what --strategy reports. */
@@ -306,6 +431,15 @@ static void display( void )
         opt_lines--;
 
     show_workload( "measuring..." );
+
+    if( opt_micro )
+    {
+        run_micro( );
+        show_workload( strategy_in_use( ) );
+        finished( );
+        return;
+    }
+
     measure( &r.ns_char, &r.ns_string, &r.passes );
     report_one( &r );
     show_workload( strategy_in_use( ) );
@@ -483,6 +617,7 @@ static void usage( const char *argv0 )
              "Usage: %s [--seconds N] [--warmup N] [--lines N] [--cols N]\n"
              "          [--repeats N] [--font NAME] [--strategy clientattrib|getset]\n"
              "          [--swap] [--swap-interval N] [--hold] [--tsv]\n"
+             "          [--micro] [--micro-iters N]\n"
              "Fonts:", argv0 );
     for( i = 0; i < num_fonts; i++ )
         fprintf( stderr, " %s", fonts[i].name );
@@ -510,6 +645,15 @@ static int parse_args( int argc, char **argv )
         }
         else if( !strcmp( a, "--child" ) )
             opt_child = 1;
+        else if( !strcmp( a, "--micro" ) )
+            opt_micro = 1;
+        else if( !strcmp( a, "--micro-iters" ) && i + 1 < argc )
+        {
+            micro_iters = atoi( argv[++i] );
+            if( micro_iters < 1 )
+                micro_iters = 1;
+            opt_micro = 1;
+        }
         else if( !strcmp( a, "--seconds" ) && i + 1 < argc )
             opt_seconds = atof( argv[++i] );
         else if( !strcmp( a, "--warmup" ) && i + 1 < argc )
@@ -592,30 +736,34 @@ int main( int argc, char **argv )
     if( !parse_args( argc, argv ) )
         return 1;
 
-    /* No strategy named: drive one child process per strategy and compare. */
-    if( !opt_strategy )
+    /* --micro times both strategies itself, in this process, so it neither
+     * needs nor wants a child per strategy. */
+    if( !opt_strategy && !opt_micro )
         return run_parent( argc, argv );
 
     /* Must be set before the first bitmap-font call, which is where
      * fg_font.c resolves and caches it. */
-    setenv( "FREEGLUT_BITMAP_PIXEL_STORE", opt_strategy, 1 );
+    if( opt_strategy )
+        setenv( "FREEGLUT_BITMAP_PIXEL_STORE", opt_strategy, 1 );
 
     build_text_line( );
 
     glutInit( &argc, argv );
     glutInitDisplayMode( GLUT_DOUBLE | GLUT_RGB );
-    glutInitWindowSize( 800, win_h );
-    snprintf( title, sizeof( title ), "freeglut bitmap_bench -- %s",
-              opt_strategy );
-    glutCreateWindow( title );
 
-    /* Size the window to the workload.  Clipped glyphs are still rasterised,
-     * but the raster position itself has to stay inside the window. */
+    /* Size the window to the workload *before* creating it.  Resizing
+     * afterwards races: the layout below would be in effect while the window
+     * still had its old size, putting the text outside the visible area.
+     * The font metrics only need glutInit, not a window. */
     line_step = glutBitmapHeight( the_font( ) ) + 2;
     win_h = 24 + opt_lines * line_step;
     win_w = 16 + glutBitmapLength( the_font( ),
                                    (const unsigned char *)text_line );
-    glutReshapeWindow( win_w, win_h );
+    glutInitWindowSize( win_w, win_h );
+
+    snprintf( title, sizeof( title ), "freeglut bitmap_bench -- %s",
+              opt_micro ? "micro" : opt_strategy );
+    glutCreateWindow( title );
 
     glutDisplayFunc( display );
     glutReshapeFunc( reshape );

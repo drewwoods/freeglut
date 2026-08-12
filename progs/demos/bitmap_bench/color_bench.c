@@ -467,14 +467,16 @@ int main( int argc, char **argv )
 
     glutInit( &argc, argv );
     glutInitDisplayMode( GLUT_DOUBLE | GLUT_RGB );
-    glutInitWindowSize( 800, win_h );
-    glutCreateWindow( "freeglut color_bench" );
 
+    /* Size the window before creating it -- resizing afterwards races with
+     * the layout below.  Font metrics only need glutInit, not a window. */
     line_step = glutBitmapHeight( the_font( ) ) + 2;
     win_h = 24 + opt_lines * line_step;
     win_w = 16 + glutBitmapLength( the_font( ),
                                    (const unsigned char *)text_line );
-    glutReshapeWindow( win_w, win_h );
+    glutInitWindowSize( win_w, win_h );
+
+    glutCreateWindow( "freeglut color_bench" );
 
     glutDisplayFunc( display );
     glutReshapeFunc( reshape );
