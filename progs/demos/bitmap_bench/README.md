@@ -15,8 +15,8 @@ per-glyph save/restore cost  =  ns/glyph(Character) - ns/glyph(String)
 | value | strategy |
 |---|---|
 | `clientattrib` | `glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT)` / `glPopClientAttrib()` — the historical path |
-| `getset` | six `glGetIntegerv()`, then six `glPixelStorei()` to put them back — the Cocoa path |
-| unset | platform default (`getset` on Cocoa, `clientattrib` elsewhere) |
+| `getset` | six `glGetIntegerv()`, then six `glPixelStorei()` to put them back — the Apple path |
+| unset | platform default (`getset` on Apple, `clientattrib` elsewhere) |
 
 It is read once and cached, since re-reading per glyph would cost more than the
 difference being measured. A process therefore exercises exactly one strategy,
@@ -89,12 +89,20 @@ one refresh period. Two caveats when reading `--swap` numbers:
 
 | host | CPU | RAM | GPU / driver |
 |---|---|---|---|
-| **mac** | Apple M2 (4P + 4E) | 24 GiB | Apple M2, Apple OpenGL (Cocoa) |
+| **mac** | Apple M2 (4P + 4E) | 24 GiB | Apple M2, Apple OpenGL (Cocoa backend) |
+| **mac-x11** | *(same machine)* | | Apple M2, Apple OpenGL (X11/GLX via XQuartz) |
 | **gracemont** | Intel N95, 4 cores | 8 GiB | Intel ADL-N, Mesa 25.2.8 (X11/GLX) |
 | **zen3** | AMD Ryzen 9 5900XT, 16 cores | 16 GiB | NVIDIA RTX 5050, driver 610.43.02 (X11/GLX) |
 
 The two Linux boxes share one monitor, so only one is display-attached at a
 time; each was attached when its own figures were taken.
+
+**mac-x11** is the same machine as **mac**, built with `FREEGLUT_COCOA=OFF`
+against XQuartz. Note that it links homebrew Mesa's `libGL`, but the GL
+implementation that actually answers is still Apple's — `bitmap_bench` prints
+`GL: Apple | Apple M2 | 2.1 Metal - 90.5` on stderr for every run, which is why
+it does that. It isolates *backend* from *driver*: same driver, different
+freeglut backend.
 
 ## Results
 
@@ -105,21 +113,60 @@ interleaved. This is the cleanest available measurement of the patch itself:
 
 | platform | `clientattrib` | `getset` | |
 |---|---:|---:|---|
-| **mac** (Apple GL) | 308.8 – 309.0 | **86.5 – 86.7** | `getset` **3.6× cheaper** |
+| **mac** — Apple GL, Cocoa | 308.8 – 309.0 | **86.5 – 86.7** | `getset` **3.6× cheaper** |
+| **mac-x11** — Apple GL, X11 | 326.5 – 327.3 | **102.9 – 103.1** | `getset` **3.2× cheaper** |
 | **gracemont** (Mesa) | **44.5 – 45.7** | 105.1 | `clientattrib` **2.3× cheaper** |
 | **zen3** (NVIDIA) | **55.7** | 98.7 | `clientattrib` **1.8× cheaper** |
 
 This is the whole argument for the patch. The two Linux drivers agree closely
 with each other — `clientattrib` 45–56 ns, `getset` 99–105 ns — and **Apple is
-the outlier**: its client-attribute stack costs 309 ns, 5.5–6.8× what either
-Linux driver charges, while its explicit query path (86.5 ns) is in fact the
-cheapest `getset` of the three.
+the outlier**: its client-attribute stack costs ~309–327 ns, 5.5–7× what either
+Linux driver charges, while its explicit query path is in the same range as
+everyone else's.
 
-So the ordering genuinely reverses across platforms, and each platform's current
-default is already the cheaper of its two options.
+**The cost tracks the driver, not the backend.** `mac` and `mac-x11` are the
+same machine and the same Apple GL, reached through two entirely different
+freeglut backends, and they give the same answer to within 6 %. Whereas the two
+X11/GLX builds — `mac-x11` and `gracemont`, same backend, different drivers —
+differ by 7×. So the expensive client-attribute stack is a property of Apple's
+OpenGL implementation, and nothing to do with Cocoa.
 
-All three reproduce to within ~1 % across runs; Mesa's and NVIDIA's figures were
+All four reproduce to within ~1 % across runs; Mesa's and NVIDIA's figures were
 identical to 0.1 ns in all five runs each.
+
+### Consequence: the condition is `__APPLE__`, not the Cocoa backend
+
+This measurement changed the patch. The original condition selected on
+`TARGET_HOST_MACOS_COCOA` — a property of the *backend* — but the cost belongs
+to the *driver*, so a macOS build with `FREEGLUT_COCOA=OFF` ran on Apple's GL
+while defaulting to `clientattrib` and paid the full penalty:
+
+| `mac-x11`, `glutBitmapCharacter` | ns/glyph |
+|---|---:|
+| old default (backend test → `clientattrib`) | 1915.0 |
+| **new default** (`__APPLE__` → `getset`) | **516.6** |
+| forced `getset`, for reference | 513.4 |
+
+`src/fg_font.c` now reads:
+
+```c
+#if defined(GL_VERSION_1_1) && !defined(__APPLE__)
+#  define FGH_PIXEL_STORE_DEFAULT FGH_PIXEL_STORE_CLIENT_ATTRIB
+#else
+#  define FGH_PIXEL_STORE_DEFAULT FGH_PIXEL_STORE_GET_SET
+#endif
+```
+
+which recovers **3.7×** for X11-on-macOS builds. Verified unchanged elsewhere:
+Cocoa still defaults to `getset` (491 ns/glyph) and Linux still defaults to
+`clientattrib` (1318 ns, against 1400 for `getset`).
+
+The residual risk is a macOS build running a genuinely non-Apple GL — a real
+Mesa softpipe through XQuartz, say — which would take the `getset` branch and
+pay ~60 ns per save/restore. That is the right way round to be wrong: the branch
+it avoids costs ~1.4 µs per glyph in situ, over 20× more. Deciding at run time
+from `glGetString(GL_VENDOR)` would close even that gap, at the cost of putting
+a vendor-string check on a path that currently has none.
 
 ### What an application pays (library level)
 
@@ -148,6 +195,18 @@ the difference is invisible. Push the text past one refresh period
 |---|---:|---|
 | `clientattrib` | 31.2 / 32.6 / 31.0 | misses 60 Hz |
 | `getset` | 7.6 / 13.1 / 14.0 | fits |
+
+### mac-x11 — X11/GLX via XQuartz, Apple OpenGL
+
+| strategy | Character | String | save/restore |
+|---|---:|---:|---:|
+| `clientattrib` | 1940 / 1930 / 1919 | 433 / 431 / 412 | **1507 / 1499 / 1507** |
+| `getset` | 508 / 513 / 517 | 404 / 411 / 415 | **103 / 102 / 102** |
+
+Essentially identical to the Cocoa figures on the same machine — `getset` is
+**14.7× cheaper** per save/restore and `glutBitmapCharacter` is **3.8× faster**.
+The backend makes no difference; the driver makes all of it. Note this is the
+configuration that currently defaults to the *expensive* path.
 
 ### zen3 — X11/GLX, NVIDIA
 
@@ -208,7 +267,8 @@ identical in every case, so the delta is purely the colour change:
 
 | platform | one colour | colour/line | colour/glyph | per-glyph colour cost |
 |---|---:|---:|---:|---:|
-| **mac** (Apple GL) | 497.2 | 496.3 | 496.9 | **−0.3 ns** |
+| **mac** (Apple GL, Cocoa) | 497.2 | 496.3 | 496.9 | **−0.3 ns** |
+| **mac-x11** (Apple GL, X11) | 1903 – 1935 | 1905 – 1948 | 1900 – 1953 | **−2.8 … +17.8 ns** |
 | **zen3** (NVIDIA) | 1235 – 1278 | 1238 – 1278 | 1248 – 1287 | **+9.1 … +13.1 ns** |
 | **gracemont** (Mesa) | 1260 – 1328 | 1260 – 1331 | 1270 – 1342 | **+8.6 … +23.3 ns** |
 
@@ -216,6 +276,10 @@ identical in every case, so the delta is purely the colour change:
 
 A colour change between bitmap glyphs is essentially free everywhere measured —
 about 1 % of the cost of the glyph, and well below the save/restore effect.
+
+(The **mac-x11** absolute figures are ~4× the **mac** ones because that build
+defaults to `clientattrib`, per the section above — the colour *delta* is
+unaffected, which is the point.)
 
 Note this benchmark does not suffer the frequency-scaling problem described
 above: all four cases run **in one process, interleaved**, so they always share a
@@ -245,19 +309,26 @@ Both paths pass on macOS/Cocoa and on Linux (Mesa and NVIDIA).
 ## Conclusion
 
 Measured in isolation, the save/restore costs **309 ns (clientattrib) vs 87 ns
-(getset) on Apple's GL**, and **45 ns vs 105 ns on Mesa** — the ordering reverses
-between the two. Apple's client-attribute stack is the outlier: ~7× more
-expensive than Mesa's, while its explicit query path is in the same range as
-everyone's.
+(getset) on Apple's GL**, **45 ns vs 105 ns on Mesa**, and **56 ns vs 99 ns on
+NVIDIA** — the ordering reverses between Apple and the rest. Apple's
+client-attribute stack is the outlier: 5.5–7× more expensive than either Linux
+driver's, while its explicit query path is in the same range as everyone's.
+
+Testing the same Apple GL through the X11 backend gives the same answer
+(327 vs 103 ns), which pins the cost to the **driver**, not the backend.
 
 At the library level that is worth **~3.9× on `glutBitmapCharacter`** on Cocoa,
 and enough to decide whether a text-heavy frame lands inside a 60 Hz budget. On
 Mesa and NVIDIA the historical path is the cheaper of the two, by margins too
 small to matter (4–9 % of glyph cost).
 
-So the change belongs scoped to the Cocoa backend, exactly as `src/fg_font.c`
-has it — not promoted to the default everywhere, where it would be a small
-regression.
+So the change must not be promoted to the default everywhere, where it would be
+a small regression. Scoping it to the *Cocoa backend* was also wrong, in the
+other direction — too narrow, since the same driver reached through X11 is
+equally slow. The condition is now `__APPLE__`, which is what the measurement
+supports: it follows the driver rather than the windowing backend, and picks up
+a 3.7× win for `FREEGLUT_COCOA=OFF` builds on macOS that the original patch
+missed.
 
 Two findings that are not about this patch but showed up alongside it:
 

@@ -13,7 +13,7 @@
  *
  *   clientattrib   glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT) / glPopClientAttrib
  *   getset         6x glGetIntegerv, then 6x glPixelStorei to restore
- *   (unset)        platform default: getset on Cocoa, clientattrib elsewhere
+ *   (unset)        platform default: getset on Apple, clientattrib elsewhere
  *
  * It reads that once and caches it, because re-reading per glyph would cost
  * more than the difference being measured.  A process therefore exercises
@@ -339,17 +339,37 @@ struct result {
     char      raw[512];   /* the child's own --tsv line, for --tsv passthrough */
 };
 
+/*
+ * Report what GL implementation actually answered.  Which libGL a build links
+ * is not obvious from the platform -- an X11 build on macOS may get Mesa via
+ * XQuartz rather than Apple's GL -- and the whole point of these numbers is
+ * which implementation they describe.  Goes to stderr so it survives --tsv.
+ */
+static void report_renderer( void )
+{
+    const GLubyte *vendor   = glGetString( GL_VENDOR );
+    const GLubyte *renderer = glGetString( GL_RENDERER );
+    const GLubyte *version  = glGetString( GL_VERSION );
+
+    fprintf( stderr, "  GL: %s | %s | %s\n",
+             vendor   ? (const char *)vendor   : "?",
+             renderer ? (const char *)renderer : "?",
+             version  ? (const char *)version  : "?" );
+    fflush( stderr );
+}
+
 static const char *strategy_in_use( void )
 {
     const char *env = getenv( "FREEGLUT_BITMAP_PIXEL_STORE" );
 
     if( env && ( !strcmp( env, "clientattrib" ) || !strcmp( env, "getset" ) ) )
         return env;
-#ifdef __APPLE__
-    return "getset (default)";
-#else
-    return "clientattrib (default)";
-#endif
+
+    /* fg_font.c keys its default off TARGET_HOST_MACOS_COCOA, which is a
+     * property of the freeglut build, not of this program -- an X11 build on
+     * macOS defaults to clientattrib even though __APPLE__ is defined.  Do not
+     * guess; name the strategy explicitly to pin it down. */
+    return "platform default";
 }
 
 /* Paint the workload so the window shows what is being measured.  The timed
@@ -430,6 +450,7 @@ static void display( void )
     while( opt_lines > 1 && (float)( win_h - opt_lines * line_step ) < 0.0f )
         opt_lines--;
 
+    report_renderer( );
     show_workload( "measuring..." );
 
     if( opt_micro )

@@ -251,11 +251,12 @@ static const char *strategy_in_use( void )
 
     if( env && ( !strcmp( env, "clientattrib" ) || !strcmp( env, "getset" ) ) )
         return env;
-#ifdef __APPLE__
-    return "getset (default)";
-#else
-    return "clientattrib (default)";
-#endif
+
+    /* fg_font.c keys its default off TARGET_HOST_MACOS_COCOA, which is a
+     * property of the freeglut build, not of this program -- an X11 build on
+     * macOS defaults to clientattrib even though __APPLE__ is defined.  Do not
+     * guess; name the strategy explicitly to pin it down. */
+    return "platform default";
 }
 
 static void report( const double ns[NUM_CASES], long long passes )
