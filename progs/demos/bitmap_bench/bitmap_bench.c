@@ -434,11 +434,15 @@ static void report_both( const struct result res[2] )
     }
     printf( "\n" );
 
-    /* String is the same work under both strategies (one save/restore for the
-     * whole line), so it doubles as a sanity check that the two runs saw
-     * comparable machine conditions. */
-    printf( "  glutBitmapString differs by %.1f%% between the two runs"
-            " (should be small -- it is the same work either way)\n",
+    /* String pays for just one save/restore per line either way, so it is very
+     * nearly the same work under both strategies.  Comparing it across the two
+     * child processes therefore measures the noise floor, not the patch: a
+     * large number here means the two children saw different machine
+     * conditions and the Character comparison above is not trustworthy. */
+    printf( "  noise check: glutBitmapString differs by %.1f%% between the"
+            " clientattrib and getset runs\n"
+            "               (near-identical work in both, so this is roughly"
+            " the measurement noise floor)\n",
             100.0 * ( res[0].ns_string - res[1].ns_string ) /
                     ( 0.5 * ( res[0].ns_string + res[1].ns_string ) ) );
 
