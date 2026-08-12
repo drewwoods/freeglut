@@ -75,9 +75,109 @@ static SFG_StrokeFont* fghStrokeByID( void* font )
     return 0;
 }
 
+/*
+ * Bitmap fonts must leave the six GL_UNPACK_* pixel-store values they touch
+ * exactly as they found them.  There are two ways to do that:
+ *
+ *   PIXEL_STORE_CLIENT_ATTRIB  glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT)
+ *                              / glPopClientAttrib()   -- needs GL 1.1
+ *   PIXEL_STORE_GET_SET        six glGetIntegerv() up front, six
+ *                              glPixelStorei() to put them back
+ *
+ * Apple's OpenGL compatibility implementation services the explicit
+ * queries/restores far more cheaply than its client-attribute stack, so
+ * Cocoa defaults to GET_SET and everyone else defaults to CLIENT_ATTRIB.
+ *
+ * Setting FREEGLUT_BITMAP_PIXEL_STORE to "clientattrib" or "getset" in the
+ * environment overrides the default at run time.  That exists so a single
+ * build can benchmark both strategies on any platform -- see
+ * progs/demos/bitmap_bench/.  An unrecognised value is ignored.
+ */
+#define FGH_PIXEL_STORE_CLIENT_ATTRIB 0
+#define FGH_PIXEL_STORE_GET_SET       1
+
+#if defined(GL_VERSION_1_1) && !TARGET_HOST_MACOS_COCOA
+#  define FGH_PIXEL_STORE_DEFAULT FGH_PIXEL_STORE_CLIENT_ATTRIB
+#else
+#  define FGH_PIXEL_STORE_DEFAULT FGH_PIXEL_STORE_GET_SET
+#endif
+
+typedef struct
+{
+    int   strategy;
+    GLint swbytes, lsbfirst, rowlen, skiprows, skippix, align;
+} fghPixelStoreState;
+
+static int fghPixelStoreStrategy( void )
+{
+    static int strategy = -1;
+
+    if( strategy < 0 )
+    {
+        const char* env = getenv( "FREEGLUT_BITMAP_PIXEL_STORE" );
+
+        strategy = FGH_PIXEL_STORE_DEFAULT;
+#ifdef GL_VERSION_1_1
+        if( env && !strcmp( env, "clientattrib" ) )
+            strategy = FGH_PIXEL_STORE_CLIENT_ATTRIB;
+#endif
+        if( env && !strcmp( env, "getset" ) )
+            strategy = FGH_PIXEL_STORE_GET_SET;
+    }
+
+    return strategy;
+}
+
+/* Save the unpack state the bitmap font paths are about to clobber, then
+ * set it to what glBitmap() needs.
+ */
+static void fghPixelStoreSave( fghPixelStoreState* state )
+{
+    state->strategy = fghPixelStoreStrategy( );
+
+#ifdef GL_VERSION_1_1
+    if( state->strategy == FGH_PIXEL_STORE_CLIENT_ATTRIB )
+        glPushClientAttrib( GL_CLIENT_PIXEL_STORE_BIT );
+    else
+#endif
+    {
+        glGetIntegerv( GL_UNPACK_SWAP_BYTES,  &state->swbytes  );
+        glGetIntegerv( GL_UNPACK_LSB_FIRST,   &state->lsbfirst );
+        glGetIntegerv( GL_UNPACK_ROW_LENGTH,  &state->rowlen   );
+        glGetIntegerv( GL_UNPACK_SKIP_ROWS,   &state->skiprows );
+        glGetIntegerv( GL_UNPACK_SKIP_PIXELS, &state->skippix  );
+        glGetIntegerv( GL_UNPACK_ALIGNMENT,   &state->align    );
+    }
+
+    glPixelStorei( GL_UNPACK_SWAP_BYTES,  GL_FALSE );
+    glPixelStorei( GL_UNPACK_LSB_FIRST,   GL_FALSE );
+    glPixelStorei( GL_UNPACK_ROW_LENGTH,  0        );
+    glPixelStorei( GL_UNPACK_SKIP_ROWS,   0        );
+    glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0        );
+    glPixelStorei( GL_UNPACK_ALIGNMENT,   1        );
+}
+
+static void fghPixelStoreRestore( const fghPixelStoreState* state )
+{
+#ifdef GL_VERSION_1_1
+    if( state->strategy == FGH_PIXEL_STORE_CLIENT_ATTRIB )
+    {
+        glPopClientAttrib( );
+        return;
+    }
+#endif
+    glPixelStorei( GL_UNPACK_SWAP_BYTES,  state->swbytes  );
+    glPixelStorei( GL_UNPACK_LSB_FIRST,   state->lsbfirst );
+    glPixelStorei( GL_UNPACK_ROW_LENGTH,  state->rowlen   );
+    glPixelStorei( GL_UNPACK_SKIP_ROWS,   state->skiprows );
+    glPixelStorei( GL_UNPACK_SKIP_PIXELS, state->skippix  );
+    glPixelStorei( GL_UNPACK_ALIGNMENT,   state->align    );
+}
+
 /* Draw a bitmap character */
 void FGAPIENTRY glutBitmapCharacter( void* fontID, int character )
 {
+    fghPixelStoreState pixelStore;
     const GLubyte* face;
     SFG_Font* font;
     FREEGLUT_EXIT_IF_NOT_INITIALISED ( "glutBitmapCharacter" );
@@ -92,59 +192,14 @@ void FGAPIENTRY glutBitmapCharacter( void* fontID, int character )
     /* Find the character we want to draw */
     face = font->Characters[ character ];
 
-    /*
-     * Apple's OpenGL compatibility implementation handles the explicit
-     * pixel-store queries/restores below much more cheaply than its client
-     * attribute stack.  Verified this also helps the XQuartz path on macOS.
-     * Conversely, Mesa and NVIDIA drivers handle the client attribute stack
-     * more efficiently than the pixel-store queries/restores.
-     *
-     * See https://github.com/drewwoods/freeglut/tree/bitmap-font-state-bench
-     * for benchmark code and detailed results.
-     *
-     * Benchmarks for state management (per save/restore, no glBitmap):
-     *                      clientattrib   getset
-     *   Apple GL, Cocoa          309 ns    87 ns
-     *   Apple GL, X11            327 ns   103 ns
-     *   Mesa                      45 ns   105 ns
-     *   NVIDIA                    56 ns    99 ns
-     */
-#if defined(GL_VERSION_1_1) && !defined(__APPLE__)
-    glPushClientAttrib( GL_CLIENT_PIXEL_STORE_BIT );
-#else
-	{
-	GLint swbytes, lsbfirst, rowlen, skiprows, skippix, align;
-
-	glGetIntegerv(GL_UNPACK_SWAP_BYTES, &swbytes);
-	glGetIntegerv(GL_UNPACK_LSB_FIRST, &lsbfirst);
-	glGetIntegerv(GL_UNPACK_ROW_LENGTH, &rowlen);
-	glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skiprows);
-	glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skippix);
-	glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
-#endif
-    glPixelStorei( GL_UNPACK_SWAP_BYTES,  GL_FALSE );
-    glPixelStorei( GL_UNPACK_LSB_FIRST,   GL_FALSE );
-    glPixelStorei( GL_UNPACK_ROW_LENGTH,  0        );
-    glPixelStorei( GL_UNPACK_SKIP_ROWS,   0        );
-    glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0        );
-    glPixelStorei( GL_UNPACK_ALIGNMENT,   1        );
+    fghPixelStoreSave( &pixelStore );
     glBitmap(
         face[ 0 ], font->Height,      /* The bitmap's width and height  */
         font->xorig, font->yorig,     /* The origin in the font glyph   */
         ( float )( face[ 0 ] ), 0.0,  /* The raster advance -- inc. x,y */
         ( face + 1 )                  /* The packed bitmap data...      */
     );
-#if defined(GL_VERSION_1_1) && !defined(__APPLE__)
-    glPopClientAttrib();
-#else
-	glPixelStorei(GL_UNPACK_SWAP_BYTES, swbytes);
-	glPixelStorei(GL_UNPACK_LSB_FIRST, lsbfirst);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH, rowlen);
-	glPixelStorei(GL_UNPACK_SKIP_ROWS, skiprows);
-	glPixelStorei(GL_UNPACK_SKIP_PIXELS, skippix);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, align);
-	}
-#endif
+    fghPixelStoreRestore( &pixelStore );
 }
 
 void FGAPIENTRY glutBitmapString( void* fontID, const unsigned char *string )
@@ -152,6 +207,7 @@ void FGAPIENTRY glutBitmapString( void* fontID, const unsigned char *string )
     unsigned char c;
     float x = 0.0f ;
     SFG_Font* font;
+    fghPixelStoreState pixelStore;
     FREEGLUT_EXIT_IF_NOT_INITIALISED ( "glutBitmapString" );
     font = fghFontByID( fontID );
     if (!font)
@@ -162,25 +218,7 @@ void FGAPIENTRY glutBitmapString( void* fontID, const unsigned char *string )
     if ( !string || ! *string )
         return;
 
-#if defined(GL_VERSION_1_1) && !defined(__APPLE__)
-    glPushClientAttrib( GL_CLIENT_PIXEL_STORE_BIT );
-#else
-	{
-	GLint swbytes, lsbfirst, rowlen, skiprows, skippix, align;
-
-	glGetIntegerv(GL_UNPACK_SWAP_BYTES, &swbytes);
-	glGetIntegerv(GL_UNPACK_LSB_FIRST, &lsbfirst);
-	glGetIntegerv(GL_UNPACK_ROW_LENGTH, &rowlen);
-	glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skiprows);
-	glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skippix);
-	glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
-#endif
-    glPixelStorei( GL_UNPACK_SWAP_BYTES,  GL_FALSE );
-    glPixelStorei( GL_UNPACK_LSB_FIRST,   GL_FALSE );
-    glPixelStorei( GL_UNPACK_ROW_LENGTH,  0        );
-    glPixelStorei( GL_UNPACK_SKIP_ROWS,   0        );
-    glPixelStorei( GL_UNPACK_SKIP_PIXELS, 0        );
-    glPixelStorei( GL_UNPACK_ALIGNMENT,   1        );
+    fghPixelStoreSave( &pixelStore );
 
     /*
      * Step through the string, drawing each character.
@@ -207,17 +245,7 @@ void FGAPIENTRY glutBitmapString( void* fontID, const unsigned char *string )
             x += ( float )( face[ 0 ] );
         }
 
-#if defined(GL_VERSION_1_1) && !defined(__APPLE__)
-    glPopClientAttrib();
-#else
-	glPixelStorei(GL_UNPACK_SWAP_BYTES, swbytes);
-	glPixelStorei(GL_UNPACK_LSB_FIRST, lsbfirst);
-	glPixelStorei(GL_UNPACK_ROW_LENGTH, rowlen);
-	glPixelStorei(GL_UNPACK_SKIP_ROWS, skiprows);
-	glPixelStorei(GL_UNPACK_SKIP_PIXELS, skippix);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, align);
-	}
-#endif
+    fghPixelStoreRestore( &pixelStore );
 }
 
 /* Returns the width in pixels of a font's character */
