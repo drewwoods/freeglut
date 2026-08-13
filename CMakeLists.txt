@@ -781,7 +781,6 @@ ADD_DEMO(vsync           progs/demos/vsync/vsync.c)
 ADD_DEMO(fonts           progs/demos/fonts/fonts.c)
 ADD_DEMO(cursors         progs/demos/cursors/cursors.c)
 ADD_DEMO(bitmap_bench     progs/demos/bitmap_bench/bitmap_bench.c)
-ADD_DEMO(color_bench      progs/demos/bitmap_bench/color_bench.c)
 ADD_DEMO(pixel_store_check progs/demos/bitmap_bench/pixel_store_check.c)
 
 #######################

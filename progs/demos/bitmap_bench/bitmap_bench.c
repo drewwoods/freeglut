@@ -78,6 +78,7 @@ static int     opt_swap    = 0;         /* present each timed pass          */
 static int     opt_interval = 0;        /* glutSwapInterval: 1 == wait vsync */
 static int     opt_child   = 0;         /* internal: emit one machine-readable line */
 static int     opt_micro   = 0;         /* in-process save/restore A/B only   */
+static int     opt_sweep   = 0;         /* Character vs String by string length */
 static const char *opt_strategy = NULL; /* NULL = run every strategy as a child */
 
 static char *text_line;                 /* opt_cols characters, NUL terminated */
@@ -124,6 +125,136 @@ static void draw_with_string( void )
             glutBitmapString( the_font( ), (const unsigned char *)text_line );
             y -= (float)line_step;
         }
+    }
+}
+
+/* ------------------------------------------------- string-length sweep ----
+ *
+ * glutBitmapCharacter pays one save/restore per glyph; glutBitmapString pays
+ * one per *call*.  So the two should cost the same for a one-character string
+ * and diverge as the string grows.  This sweep measures that curve.
+ *
+ * The glyphs drawn are IDENTICAL for every string length: a fixed grid of
+ * SWEEP_ROWS x SWEEP_COLS positions is filled every time, and the only thing
+ * that varies is whether it is emitted in chunks of 1, 10, 100 or 1000
+ * characters.  Holding only the glyph *count* constant is not enough -- with
+ * the same glyph redrawn in one spot at L=1 and a full block covered at
+ * L=1000, the pixel coverage and cache behaviour differ enormously, which on
+ * Mesa swamped the effect being measured and made long strings look slower.
+ *
+ * The grid is sized to match the default library-level workload, because the
+ * absolute per-glyph figures depend on how many glyphs are in a timed pass: the
+ * two glFinish() calls bracketing a pass cost a fixed ~450 us on Apple's
+ * Metal-backed GL, which is amortised over the pass.  Halving the glyphs per
+ * pass therefore inflates every per-glyph number by ~10-30%.  The Character
+ * minus String *gap* is unaffected, since both passes pay the same overhead and
+ * it cancels -- so gaps are comparable across workloads and absolutes are not.
+ *
+ * Both variants issue the same number of glRasterPos2f calls, one per chunk.
+ * Chunk sizes divide (or are multiples of) the row length, so a chunk that
+ * spans rows always starts at column 0 -- which matters because
+ * glutBitmapString's newline steps back to the string's own start x, and the
+ * character path has to mirror that exactly to stay comparable.
+ */
+
+#define SWEEP_ROWS  40
+#define SWEEP_COLS 100
+#define SWEEP_GLYPHS ( SWEEP_ROWS * SWEEP_COLS )
+
+static const int sweep_len[] = { 1, 10, 100, 1000 };
+#define SWEEP_N ( (int)( sizeof( sweep_len ) / sizeof( sweep_len[0] ) ) )
+
+static char  sweep_grid[SWEEP_GLYPHS];   /* the glyphs, row-major        */
+static char *sweep_chunk[SWEEP_N];       /* chunk text, newlines inserted */
+static int   glyph_w[256];               /* precomputed: the character path
+                                          * must not pay for glutBitmapWidth */
+
+static void build_sweep_text( void )
+{
+    static const char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:!?-+/*";
+    const int alen = (int)( sizeof( alphabet ) - 1 );
+    int i, n;
+
+    for( i = 0; i < 256; i++ )
+        glyph_w[i] = glutBitmapWidth( the_font( ), i );
+
+    for( i = 0; i < SWEEP_GLYPHS; i++ )
+        sweep_grid[i] = alphabet[i % alen];
+
+    /* One chunk's worth of text, with a newline wherever it crosses a row. */
+    for( n = 0; n < SWEEP_N; n++ )
+    {
+        int len = sweep_len[n];
+        int nl  = ( len - 1 ) / SWEEP_COLS;
+        char *t = (char *)malloc( (size_t)( len + nl + 1 ) );
+        int k, dst = 0;
+
+        if( !t )
+        {
+            fprintf( stderr, "bitmap_bench: out of memory\n" );
+            exit( 1 );
+        }
+        for( k = 0; k < len; k++ )
+        {
+            if( k > 0 && k % SWEEP_COLS == 0 )
+                t[dst++] = '\n';
+            t[dst++] = sweep_grid[k % SWEEP_GLYPHS];
+        }
+        t[dst] = '\0';
+        sweep_chunk[n] = t;
+    }
+}
+
+/* Top-left of the glyph at grid index i. */
+static void sweep_origin( int i, float *x, float *y )
+{
+    *x = 8.0f + (float)( ( i % SWEEP_COLS ) * glyph_w[(unsigned char)'A'] );
+    *y = (float)( win_h - line_step - ( i / SWEEP_COLS ) * line_step );
+}
+
+static void sweep_draw_character( int n )
+{
+    const int len = sweep_len[n];
+    int i;
+
+    for( i = 0; i < SWEEP_GLYPHS; i += len )
+    {
+        const char *p = sweep_chunk[n];
+        float x0, y0, x = 0.0f;
+        unsigned char c;
+
+        sweep_origin( i, &x0, &y0 );
+        glRasterPos2f( x0, y0 );
+        while( ( c = (unsigned char)*p++ ) != 0 )
+        {
+            if( c == '\n' )
+            {
+                /* The same reposition glutBitmapString performs internally. */
+                glBitmap( 0, 0, 0, 0, -x, (float)-line_step, NULL );
+                x = 0.0f;
+            }
+            else
+            {
+                glutBitmapCharacter( the_font( ), c );
+                x += (float)glyph_w[c];
+            }
+        }
+    }
+}
+
+static void sweep_draw_string( int n )
+{
+    const int len = sweep_len[n];
+    int i;
+
+    for( i = 0; i < SWEEP_GLYPHS; i += len )
+    {
+        float x0, y0;
+
+        sweep_origin( i, &x0, &y0 );
+        glRasterPos2f( x0, y0 );
+        glutBitmapString( the_font( ), (const unsigned char *)sweep_chunk[n] );
     }
 }
 
@@ -203,6 +334,92 @@ static void measure( double *ns_char, double *ns_string, long long *passes )
         if( s < *ns_string ) *ns_string = s;
         ( *passes )++;
     } while( now_seconds( ) < t_end );
+}
+
+static const char *strategy_in_use( void );
+
+/*
+ * Time all 2*SWEEP_N series round-robin, pass by pass, taking the minimum for
+ * each -- same discipline as everywhere else here, so a drifting clock cannot
+ * favour one length over another.
+ */
+static void run_sweep( void )
+{
+    double ns_char[SWEEP_N], ns_string[SWEEP_N];
+    double t_end;
+    long long passes = 0;
+    int n;
+
+    for( n = 0; n < SWEEP_N; n++ )
+        ns_char[n] = ns_string[n] = 1.0e30;
+
+    t_end = now_seconds( ) + opt_warmup;
+    while( now_seconds( ) < t_end )
+    {
+        for( n = 0; n < SWEEP_N; n++ )
+        {
+            sweep_draw_character( n );
+            sweep_draw_string( n );
+        }
+        glFinish( );
+    }
+
+    t_end = now_seconds( ) + opt_seconds;
+    do {
+        for( n = 0; n < SWEEP_N; n++ )
+        {
+            double glyphs = (double)SWEEP_GLYPHS;
+            double t0, t;
+
+            glFinish( );
+            t0 = now_seconds( );
+            sweep_draw_character( n );
+            glFinish( );
+            t = ( now_seconds( ) - t0 ) * 1.0e9 / glyphs;
+            if( t < ns_char[n] ) ns_char[n] = t;
+
+            glFinish( );
+            t0 = now_seconds( );
+            sweep_draw_string( n );
+            glFinish( );
+            t = ( now_seconds( ) - t0 ) * 1.0e9 / glyphs;
+            if( t < ns_string[n] ) ns_string[n] = t;
+        }
+        passes++;
+    } while( now_seconds( ) < t_end );
+
+    if( opt_tsv )
+    {
+        printf( "sweep\t%s\t%lld", strategy_in_use( ), passes );
+        for( n = 0; n < SWEEP_N; n++ )
+            printf( "\t%.1f\t%.1f", ns_char[n], ns_string[n] );
+        printf( "\n" );
+        fflush( stdout );
+        return;
+    }
+
+    printf( "\n" );
+    printf( "  cost per glyph, %s font, %s\n",
+            fonts[opt_font].name, strategy_in_use( ) );
+    printf( "  (%d glyphs per timed pass, %lld passes)\n\n",
+            SWEEP_GLYPHS, passes );
+    printf( "    %-12s %20s %20s\n",
+            "string len", "glutBitmapCharacter", "glutBitmapString" );
+    for( n = 0; n < SWEEP_N; n++ )
+        printf( "    %-12d %17.1f ns %17.1f ns\n",
+                sweep_len[n], ns_char[n], ns_string[n] );
+    printf( "\n" );
+    printf( "  Both columns fall with L because each unit's glRasterPos2f is\n"
+            "  amortised over L glyphs.  What isolates the save/restore is the\n"
+            "  gap between them: glutBitmapString pays it once per call, so the\n"
+            "  gap starts at zero for L=1 and converges to the full per-glyph\n"
+            "  cost as L grows:\n\n" );
+    for( n = 0; n < SWEEP_N; n++ )
+        printf( "    L=%-6d gap %+.1f ns/glyph\n",
+                sweep_len[n], ns_char[n] - ns_string[n] );
+    printf( "\n" );
+    printf( "\n" );
+    fflush( stdout );
 }
 
 /* ------------------------------------------------- in-process micro A/B ---
@@ -453,6 +670,14 @@ static void display( void )
     report_renderer( );
     show_workload( "measuring..." );
 
+    if( opt_sweep )
+    {
+        run_sweep( );
+        show_workload( strategy_in_use( ) );
+        finished( );
+        return;
+    }
+
     if( opt_micro )
     {
         run_micro( );
@@ -638,7 +863,7 @@ static void usage( const char *argv0 )
              "Usage: %s [--seconds N] [--warmup N] [--lines N] [--cols N]\n"
              "          [--repeats N] [--font NAME] [--strategy clientattrib|getset]\n"
              "          [--swap] [--swap-interval N] [--hold] [--tsv]\n"
-             "          [--micro] [--micro-iters N]\n"
+             "          [--micro] [--micro-iters N] [--sweep]\n"
              "Fonts:", argv0 );
     for( i = 0; i < num_fonts; i++ )
         fprintf( stderr, " %s", fonts[i].name );
@@ -668,6 +893,8 @@ static int parse_args( int argc, char **argv )
             opt_child = 1;
         else if( !strcmp( a, "--micro" ) )
             opt_micro = 1;
+        else if( !strcmp( a, "--sweep" ) )
+            opt_sweep = 1;
         else if( !strcmp( a, "--micro-iters" ) && i + 1 < argc )
         {
             micro_iters = atoi( argv[++i] );
@@ -759,7 +986,7 @@ int main( int argc, char **argv )
 
     /* --micro times both strategies itself, in this process, so it neither
      * needs nor wants a child per strategy. */
-    if( !opt_strategy && !opt_micro )
+    if( !opt_strategy && !opt_micro && !opt_sweep )
         return run_parent( argc, argv );
 
     /* Must be set before the first bitmap-font call, which is where
@@ -777,14 +1004,25 @@ int main( int argc, char **argv )
      * still had its old size, putting the text outside the visible area.
      * The font metrics only need glutInit, not a window. */
     line_step = glutBitmapHeight( the_font( ) ) + 2;
+    if( opt_sweep )
+    {
+        /* Tall/wide enough that the wrapped 1000-glyph string stays entirely
+         * inside the window -- see the sweep comment on invalid raster pos. */
+        opt_lines = SWEEP_ROWS + 1;
+        opt_cols  = SWEEP_COLS;
+        build_text_line( );
+    }
     win_h = 24 + opt_lines * line_step;
     win_w = 16 + glutBitmapLength( the_font( ),
                                    (const unsigned char *)text_line );
     glutInitWindowSize( win_w, win_h );
 
     snprintf( title, sizeof( title ), "freeglut bitmap_bench -- %s",
-              opt_micro ? "micro" : opt_strategy );
+              opt_micro ? "micro" : opt_sweep ? "sweep" : opt_strategy );
     glutCreateWindow( title );
+
+    if( opt_sweep )
+        build_sweep_text( );
 
     glutDisplayFunc( display );
     glutReshapeFunc( reshape );

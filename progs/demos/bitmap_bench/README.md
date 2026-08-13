@@ -27,7 +27,6 @@ so `bitmap_bench` re-runs itself once per strategy and prints the comparison.
 | | |
 |---|---|
 | `bitmap_bench` | Character vs String, both strategies, optionally behind a buffer swap |
-| `color_bench` | cost of changing `glColor` between bitmap glyphs |
 | `pixel_store_check` | correctness: both strategies must restore what they found |
 | `run_ab.sh` | build with the right backend, run the check, run the benchmark |
 
@@ -73,6 +72,26 @@ The two numbers answer different questions and do not agree, by design:
 
 Use `--micro` to compare the two strategies. Use the library-level figure to see
 what an application actually pays.
+
+### Absolute per-glyph figures depend on the workload size
+
+Each timed pass is bracketed by two `glFinish()` calls, and on Apple's
+Metal-backed GL that pair costs a fixed **~450 µs** regardless of how much was
+drawn. It is amortised over the glyphs in the pass, so shrinking the workload
+inflates every per-glyph number. Same build, same strategy (`clientattrib`),
+only the grid changed:
+
+| geometry | glyphs/pass | Character | String | gap |
+|---|---:|---:|---:|---:|
+| 40 × 80 | 3200 | 1907 | 429 | **1478** |
+| 40 × 100 | 4000 | 1927 | 430 | **1497** |
+| 20 × 100 | 2000 | 2111 | 551 | **1561** |
+| 20 × 80 | 1600 | 2111 | 569 | **1541** |
+
+The columns move 10–30 % across that range; the **gap moves ~5 %**, because both
+passes pay the same overhead and it cancels in the subtraction. So compare gaps
+freely, but only compare absolute columns between runs of the same size. All
+tables below use 3200–4000 glyphs per pass.
 
 By default nothing is presented, so the figure is pure draw cost and nothing is
 clamped to the refresh rate. `--swap` presents each pass as a real frame and
@@ -259,38 +278,78 @@ Gracemont E-cores, so pinning just puts the benchmark and the GL driver thread
 on the same core. Without root to change the governor, the fix is the in-process
 `--micro` comparison, which removes the confound instead of averaging over it.
 
-## Cost of changing glColor between glyphs
+## How the save/restore amortises with string length (`--sweep`)
 
-`color_bench` draws the same glyphs with `glutBitmapCharacter()` throughout and
-varies only how often `glColor3f()` is called — the pixel-store handling is
-identical in every case, so the delta is purely the colour change:
+`glutBitmapCharacter` pays one save/restore per glyph; `glutBitmapString` pays
+one per *call*. So the two should cost the same for a one-character string and
+diverge as the string grows. `--sweep` measures that, drawing identical glyphs
+either way with the same number of `glRasterPos2f` calls.
 
-| platform | one colour | colour/line | colour/glyph | per-glyph colour cost |
+Every string length draws the **identical grid of glyphs** (20 rows x 100 cols);
+only the chunk size varies. Holding just the glyph *count* constant is not
+enough — redrawing one glyph in place at L=1 versus covering a full block at
+L=1000 changes pixel coverage and cache behaviour enough to swamp the effect,
+which is exactly what a first attempt at this measured. Long chunks are wrapped
+with embedded newlines, since a raster position that runs off the right edge
+goes invalid and every later `glBitmap` silently becomes a no-op.
+
+Cost per glyph, `8x13`, macOS / Apple GL / Cocoa:
+
+| | L=1 | L=10 | L=100 | L=1000 |
 |---|---:|---:|---:|---:|
-| **mac** (Apple GL, Cocoa) | 497.2 | 496.3 | 496.9 | **−0.3 ns** |
-| **mac-x11** (Apple GL, X11) | 1903 – 1935 | 1905 – 1948 | 1900 – 1953 | **−2.8 … +17.8 ns** |
-| **zen3** (NVIDIA) | 1235 – 1278 | 1238 – 1278 | 1248 – 1287 | **+9.1 … +13.1 ns** |
-| **gracemont** (Mesa) | 1260 – 1328 | 1260 – 1331 | 1270 – 1342 | **+8.6 … +23.3 ns** |
+| **Cocoa, `getset`** (the shipping default) | | | | |
+| `glutBitmapCharacter` | 538 | 520 | 505 | 502 |
+| `glutBitmapString` | 539 | 433 | 411 | 409 |
+| **Cocoa, `clientattrib`** | | | | |
+| `glutBitmapCharacter` | 2107 | 2020 | 1988 | 1985 |
+| `glutBitmapString` | 2071 | 597 | 433 | 414 |
 
-5 runs each on the Linux boxes, 8 s per run.
+Reading it:
 
-A colour change between bitmap glyphs is essentially free everywhere measured —
-about 1 % of the cost of the glyph, and well below the save/restore effect.
+- **At L=1 the two calls are identical**, in every configuration — as they must
+  be, since a one-character string pays exactly one save/restore either way.
+  That the measurement reproduces this is a good check that the sweep is fair.
+- **Both columns fall with L**, because each unit's `glRasterPos2f` is amortised
+  over L glyphs too. The save/restore is isolated by the *gap* between them, not
+  by either column alone.
+- **`glutBitmapString` converges to the bare glyph cost** (~410 ns) once the
+  save/restore is amortised away, and it gets there fast: most of the benefit is
+  already banked by L=10, and essentially all of it by L=100.
+- **`glutBitmapCharacter` never improves**, since its save/restore is per glyph.
+  Under `clientattrib` it plateaus at ~1985 ns against String's ~414 — a **4.8×
+  penalty** for drawing character by character. Under `getset` the same penalty
+  is 502 vs 409, or **1.23×**.
 
-(The **mac-x11** absolute figures are ~4× the **mac** ones because that build
-defaults to `clientattrib`, per the section above — the colour *delta* is
-unaffected, which is the point.)
+That last pair is the practical summary of the patch: it does not make
+`glutBitmapCharacter` as fast as `glutBitmapString`, but it takes the cost of
+choosing the per-character API on Apple's GL from 4.8× down to 1.2×.
 
-Note this benchmark does not suffer the frequency-scaling problem described
-above: all four cases run **in one process, interleaved**, so they always share a
-clock state. The Mesa spread across runs comes from the absolute glyph cost
-moving (1260–1342 ns), while the colour *delta* stays in a narrow band.
+### The same sweep on Mesa
 
-The Mesa sensitivity to colour changes that prompted this test did not reproduce
-in this shape of workload — bitmap glyphs via `glutBitmapCharacter` with
-`glColor3f` between them, on Mesa 25.2 / Intel N95. If the original problem
-involved a different call (`glColor` inside `glBegin`/`glEnd`, vertex arrays, or
-a different Mesa driver), that is a separate case this program does not cover.
+Only the *shape* is reportable here — see the gracemont noise section above. Each
+strategy is a separate process, and on this run the `clientattrib` process
+happened to sit in a fast clock state throughout (~950–1040 ns/glyph) while the
+`getset` process sat in a slow one (~1750–2100), a 2× offset that has nothing to
+do with the strategies. Comparing the two blocks against each other would be
+meaningless; comparing lengths *within* a block is fine, since the sweep
+interleaves all eight series in one process.
+
+Character − String gap, ns/glyph:
+
+| | L=1 | L=10 | L=100 | L=1000 |
+|---|---:|---:|---:|---:|
+| `clientattrib` | +19 | +35 | +27 | +61 |
+| `getset` | +10 | +138 | +43 | +164 |
+
+What survives the noise is the part that matters: **on Mesa the gap is tiny at
+every length** — tens of ns against a ~1000–2000 ns glyph — where on Apple's GL
+with `clientattrib` it reaches ~1600 ns. So the choice between
+`glutBitmapCharacter` and `glutBitmapString` is close to irrelevant on Mesa and
+worth ~4× on Apple. The L=1 parity check also holds here (+19 and +10 ns, i.e.
+zero within noise), which is a useful sign the sweep is behaving.
+
+Per-length figures on this box are not quotable to the precision of the macOS
+rows, and are deliberately not presented as such.
 
 ## Correctness, not just speed
 
@@ -336,4 +395,3 @@ Two findings that are not about this patch but showed up alongside it:
   draw on NVIDIA), making `glutBitmapString` **~7.5× faster** than
   `glutBitmapCharacter` there regardless of strategy. Which entry point an
   application calls matters more than which strategy freeglut uses.
-- Changing `glColor` between bitmap glyphs is free everywhere measured.
