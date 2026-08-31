@@ -269,6 +269,7 @@ ELSEIF(EMSCRIPTEN)
         src/emscripten/fg_display_emscripten.c
         src/emscripten/fg_ext_emscripten.c
         src/emscripten/fg_gamemode_emscripten.c
+        src/emscripten/fg_glut_shim_emscripten.c
         src/emscripten/fg_init_emscripten.c
         src/emscripten/fg_internal_emscripten.h
         src/emscripten/fg_input_devices_emscripten.c
